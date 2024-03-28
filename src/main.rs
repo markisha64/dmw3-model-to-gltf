@@ -16,25 +16,17 @@ struct Args {
 
 #[derive(BinRead)]
 struct PartPacked {
-    id: u32,
+    _id: u32,
     triangles: u32,
-    f2: u32,
+    _f2: u32,
 }
 
 #[derive(BinRead)]
 struct Header {
-    texture_offset: u32,
-    part_count: u32,
-    #[br(count=part_count)]
+    _texture_offset: u32,
+    _part_count: u32,
+    #[br(count=_part_count)]
     parts: Vec<PartPacked>,
-}
-
-type Tri = (usize, usize, usize);
-type Quad = (usize, usize, usize, usize);
-
-enum FaceEnum {
-    Tri(Tri),
-    Quad(Quad),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -46,7 +38,7 @@ struct Vertex {
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 struct Triangle {
-    indices: [u32; 3],
+    indices: [u16; 3],
 }
 
 const TARGET: &str = "new";
@@ -67,12 +59,12 @@ fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
     new_vec
 }
 
-fn parts_to_gltf(parts: &Vec<PartPacked>, filename: &str, unpacked: &pack::Packed) {
+fn parts_to_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     let mut root = json::Root::default();
 
     let mut nodes = Vec::new();
 
-    for (idx, part) in parts.iter().enumerate() {
+    for (idx, part) in header.parts.iter().enumerate() {
         let vfile = &unpacked.files[part.triangles as usize];
 
         let verts_offset = u32::from_le_bytes([vfile[0], vfile[1], vfile[2], vfile[3]]) as usize;
@@ -122,24 +114,24 @@ fn parts_to_gltf(parts: &Vec<PartPacked>, filename: &str, unpacked: &pack::Packe
                     if is_quad > 0 {
                         faces.push(Triangle {
                             indices: [
-                                face_file[i + 1] as u32,
-                                face_file[i + 2] as u32,
-                                face_file[i + 3] as u32,
+                                face_file[i + 1] as u16,
+                                face_file[i + 2] as u16,
+                                face_file[i + 3] as u16,
                             ],
                         });
                         faces.push(Triangle {
                             indices: [
-                                face_file[i + 2] as u32,
-                                face_file[i + 3] as u32,
-                                face_file[i + 4] as u32,
+                                face_file[i + 2] as u16,
+                                face_file[i + 3] as u16,
+                                face_file[i + 4] as u16,
                             ],
                         });
                     } else {
                         faces.push(Triangle {
                             indices: [
-                                face_file[i + 1] as u32,
-                                face_file[i + 2] as u32,
-                                face_file[i + 3] as u32,
+                                face_file[i + 1] as u16,
+                                face_file[i + 2] as u16,
+                                face_file[i + 3] as u16,
                             ],
                         });
                     }
@@ -216,7 +208,7 @@ fn parts_to_gltf(parts: &Vec<PartPacked>, filename: &str, unpacked: &pack::Packe
             buffer: faces_buffer,
             byte_length: USize64::from(faces_buffer_length),
             byte_offset: None,
-            byte_stride: Some(json::buffer::Stride(mem::size_of::<u32>())),
+            byte_stride: Some(json::buffer::Stride(mem::size_of::<u16>())),
             extensions: Default::default(),
             extras: Default::default(),
             target: Some(Valid(json::buffer::Target::ElementArrayBuffer)),
@@ -226,10 +218,10 @@ fn parts_to_gltf(parts: &Vec<PartPacked>, filename: &str, unpacked: &pack::Packe
             buffer_view: Some(faces_view),
             byte_offset: Some(USize64(0)),
             count: USize64::from(
-                (faces.len() * mem::size_of::<Triangle>()) / mem::size_of::<u32>(),
+                (faces.len() * mem::size_of::<Triangle>()) / mem::size_of::<u16>(),
             ),
             component_type: Valid(json::accessor::GenericComponentType(
-                json::accessor::ComponentType::U32,
+                json::accessor::ComponentType::U16,
             )),
             extensions: Default::default(),
             extras: Default::default(),
@@ -306,5 +298,5 @@ fn main() {
 
     fs::create_dir_all(format!("{TARGET}/{filename}")).unwrap();
 
-    parts_to_gltf(&header.parts, filename, &unpacked);
+    parts_to_gltf(&header, filename, &unpacked);
 }
