@@ -1,0 +1,3 @@
+[submodule "gltf"]
+	path = gltf
+	url = https://github.com/gltf-rs/gltf
