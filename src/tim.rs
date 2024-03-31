@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BPP {
     B4 = 0,
     B8 = 1,
@@ -22,14 +22,14 @@ impl From<u8> for BPP {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Header {
     _version: u8,
     bpp: BPP,
     _clp: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Clut {
     length: u32,
     _x: u16,
@@ -39,7 +39,7 @@ pub struct Clut {
     _bytes: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Image {
     length: u32,
     _x: u16,
@@ -49,7 +49,7 @@ pub struct Image {
     _bytes: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tim {
     header: Header,
     clut: Option<Clut>,
@@ -198,12 +198,6 @@ fn main() {
     let file = fs::read(args.file).unwrap();
 
     let tim = Tim::from(file);
-
-    dbg!(tim.image.length);
-    dbg!(tim.image._x);
-    dbg!(tim.image._y);
-    dbg!(tim.image._width);
-    dbg!(tim.image._height);
 
     let bytes: Vec<u8> = tim.into();
 
