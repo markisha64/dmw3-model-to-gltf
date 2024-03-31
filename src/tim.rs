@@ -88,7 +88,7 @@ impl From<Vec<u8>> for Tim {
                 _y: clut_y,
                 _width: clut_width,
                 _height: clut_height,
-                _bytes: cbytes[..clut_length as usize].into(),
+                _bytes: cbytes[12..clut_length as usize].into(),
             };
 
             clut = Some(bclut);
@@ -112,7 +112,7 @@ impl From<Vec<u8>> for Tim {
             _y: image_y,
             _width: image_width,
             _height: image_height,
-            _bytes: ibytes[..image_length as usize].into(),
+            _bytes: ibytes[12..image_length as usize].into(),
         };
 
         Tim {
@@ -120,6 +120,70 @@ impl From<Vec<u8>> for Tim {
             clut,
             image,
         }
+    }
+}
+
+impl Into<Vec<u8>> for Tim {
+    fn into(self) -> Vec<u8> {
+        let mut result = vec![0x10];
+
+        // tim header
+        result.push(self.header._version);
+
+        result.push(0);
+        result.push(0);
+
+        let byte_5 = (self.header.bpp as u8) | ((self.header._clp as u8) << 3);
+
+        result.push(byte_5);
+
+        result.push(0);
+        result.push(0);
+        result.push(0);
+
+        // clut
+        if let Some(clut) = self.clut {
+            result.push(clut.length as u8);
+            result.push((clut.length >> 8) as u8);
+            result.push((clut.length >> 16) as u8);
+            result.push((clut.length >> 24) as u8);
+
+            result.push(clut._x as u8);
+            result.push((clut._x >> 8) as u8);
+
+            result.push(clut._y as u8);
+            result.push((clut._y >> 8) as u8);
+
+            result.push(clut._width as u8);
+            result.push((clut._width >> 8) as u8);
+
+            result.push(clut._height as u8);
+            result.push((clut._height >> 8) as u8);
+
+            result.extend(clut._bytes);
+        }
+
+        // image
+        result.push(self.image.length as u8);
+        result.push((self.image.length >> 8) as u8);
+        result.push((self.image.length >> 16) as u8);
+        result.push((self.image.length >> 24) as u8);
+
+        result.push(self.image._x as u8);
+        result.push((self.image._x >> 8) as u8);
+
+        result.push(self.image._y as u8);
+        result.push((self.image._y >> 8) as u8);
+
+        result.push(self.image._width as u8);
+        result.push((self.image._width >> 8) as u8);
+
+        result.push(self.image._height as u8);
+        result.push((self.image._height >> 8) as u8);
+
+        result.extend(self.image._bytes);
+
+        result
     }
 }
 
@@ -140,4 +204,8 @@ fn main() {
     dbg!(tim.image._y);
     dbg!(tim.image._width);
     dbg!(tim.image._height);
+
+    let bytes: Vec<u8> = tim.into();
+
+    fs::write("new/new.tim", bytes).unwrap();
 }
