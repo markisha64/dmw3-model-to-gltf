@@ -1,4 +1,6 @@
 mod pack;
+mod tim;
+
 use binread::{io::Cursor, BinRead};
 use clap::Parser;
 use gltf_json as json;

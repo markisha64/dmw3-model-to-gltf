@@ -10,3 +10,7 @@ binread = "2.2.0"
 binwrite = "0.2.1"
 clap = { version = "4.5.3", features = ["derive"] }
 gltf-json = { version = "1.4.0", path = "gltf/gltf-json" }
+
+[[bin]]
+name = "tim"
+path = "src/tim.rs"
