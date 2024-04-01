@@ -14,3 +14,7 @@ gltf-json = { version = "1.4.0", path = "gltf/gltf-json" }
 [[bin]]
 name = "tim"
 path = "src/tim.rs"
+
+[[bin]]
+name = "rlen"
+path = "src/rlen.rs"
