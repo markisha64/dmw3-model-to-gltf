@@ -5,11 +5,14 @@ mod tim;
 use binread::{io::Cursor, BinRead};
 use clap::Parser;
 use gltf_json as json;
+use image::RgbaImage;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
+use rlen::rlen_decode;
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, mem};
+use tim::Tim;
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -26,7 +29,7 @@ struct PartPacked {
 
 #[derive(BinRead)]
 struct Header {
-    _texture_offset: u32,
+    texture_offset: u32,
     _part_count: u32,
     #[br(count=_part_count)]
     parts: Vec<PartPacked>,
@@ -47,6 +50,43 @@ struct Triangle {
 const TARGET: &str = "new";
 const DIVISOR: f32 = 256.0;
 
+type Point = (u32, u32);
+type PointFloat = (f64, f64);
+
+fn point_in_triangle(p1: PointFloat, p2: PointFloat, p3: PointFloat, px: f64, py: f64) -> bool {
+    let area_orig =
+        0.5 * (-p2.1 * p3.0 + p1.1 * (-p2.0 + p3.0) + p1.0 * (p2.1 - p3.1) + p2.0 * p3.1);
+    let area1 = 0.5 * (-p2.1 * p3.0 + py * (-p2.0 + p3.0) + px * (p2.1 - p3.1) + p2.0 * p3.1);
+    let area2 = 0.5 * (p1.1 * p3.0 + py * (p1.0 - p3.0) + px * (p3.1 - p1.1) + p1.0 * (-p3.1 + py));
+    let area3 =
+        0.5 * (p1.1 * p2.0 + py * (p3.0 - p1.0) + px * (p1.1 - p2.1) + p1.0 * (-p2.1 + p3.1));
+
+    (area_orig - (area1 + area2 + area3)) < 0.0001
+}
+
+fn pixels_in_triangle(p1: PointFloat, p2: PointFloat, p3: PointFloat) -> Vec<Point> {
+    // Find bounding box
+    let min_x = p1.0.min(p2.0).min(p3.0).floor() as i32;
+    let max_x = p1.0.max(p2.0).max(p3.0).ceil() as i32;
+    let min_y = p1.1.min(p2.1).min(p3.1).floor() as i32;
+    let max_y = p1.1.max(p2.1).max(p3.1).ceil() as i32;
+
+    let mut pixels = Vec::new();
+
+    // Iterate over bounding box
+    for x in min_x..=max_x {
+        for y in min_y..=max_y {
+            let px = x as f64 + 0.5;
+            let py = y as f64 + 0.5;
+            if point_in_triangle(p1, p2, p3, px, py) {
+                pixels.push((px as u32, py as u32));
+            }
+        }
+    }
+
+    pixels
+}
+
 fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
     let byte_length = vec.len() * mem::size_of::<T>();
     let byte_capacity = vec.capacity() * mem::size_of::<T>();
@@ -62,8 +102,61 @@ fn to_padded_byte_vector<T>(vec: Vec<T>) -> Vec<u8> {
     new_vec
 }
 
-fn parts_to_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
+fn clut_idx_to_rgb(clut: &[u8], idx: usize) -> image::Rgba<u8> {
+    let normalized = (idx & 0xf) * 2;
+
+    let raw = u16::from_le_bytes([clut[normalized], clut[normalized + 1]]);
+
+    let r = raw & 0x1f;
+    let g = (raw >> 5) & 0x1f;
+    let b = (raw >> 10) & 0x1f;
+
+    let r_norm = ((r * 255) / 0x1f) as u8;
+    let g_norm = ((g * 255) / 0x1f) as u8;
+    let b_norm = ((b * 255) / 0x1f) as u8;
+
+    image::Rgba([r_norm, g_norm, b_norm, 255])
+}
+
+fn color_tex_tris(
+    texture: &mut RgbaImage,
+    tim: &Tim,
+    clut: &[u8],
+    tex1: PointFloat,
+    tex2: PointFloat,
+    tex3: PointFloat,
+) {
+    let pixels = pixels_in_triangle(tex1, tex2, tex3);
+
+    for pixel in pixels {
+        let pixel_idx_byte = tim.image.bytes[((pixel.0 + pixel.1 * 256) / 2) as usize];
+
+        let pixel_idx = match pixel.0 % 2 {
+            0 => pixel_idx_byte & 0xf,
+            _ => (pixel_idx_byte >> 4) & 0xf,
+        } as usize;
+
+        let color = clut_idx_to_rgb(clut, pixel_idx);
+
+        texture.put_pixel(pixel.0, pixel.1, color);
+    }
+}
+
+fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     let mut root = json::Root::default();
+
+    let texture_packed_raw = &unpacked.files[header.texture_offset as usize];
+
+    let texture_packed = pack::Packed::from(texture_packed_raw.clone());
+
+    let texture_raw = match rlen_decode(&texture_packed.files[0]) {
+        Ok(file) => file,
+        Err(_) => texture_packed_raw.clone(),
+    };
+
+    let texture_tim = Tim::from(texture_raw);
+
+    let mut texture_png: RgbaImage = RgbaImage::new(256, 256);
 
     let mut nodes = Vec::new();
 
@@ -96,11 +189,19 @@ fn parts_to_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
         let mut faces: Vec<Triangle> = Vec::new();
 
+        let mut tex_origin_1 = 0;
+        let mut tex_origin_2 = 0;
+
+        let mut clut_x = 0;
+        let mut clut_y = 0;
+
+        let mut clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
+
         let mut is_quad = 1;
-        let mut s2 = 1;
+        let mut is_textured = 1;
         // let mut s3 = 0;
         // let mut s4 = 0;
-        let mut s5 = 1;
+        let mut has_normals = 1;
         // let mut s6 = 0;
         // let mut s7 = 0;
 
@@ -110,58 +211,139 @@ fn parts_to_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             let ctype = face_file[i] >> 4;
             let t = (face_file[i] & 0xf) as usize;
 
-            if ctype == 0 {
-                if t == 1 {
-                    i += 7;
-                } else if t < 2 {
-                    if is_quad > 0 {
-                        faces.push(Triangle {
-                            indices: [
-                                face_file[i + 1] as u16,
-                                face_file[i + 2] as u16,
-                                face_file[i + 3] as u16,
-                            ],
-                        });
-                        faces.push(Triangle {
-                            indices: [
-                                face_file[i + 2] as u16,
-                                face_file[i + 3] as u16,
-                                face_file[i + 4] as u16,
-                            ],
-                        });
-                    } else {
-                        faces.push(Triangle {
-                            indices: [
-                                face_file[i + 1] as u16,
-                                face_file[i + 2] as u16,
-                                face_file[i + 3] as u16,
-                            ],
-                        });
+            match ctype {
+                0 => {
+                    if t == 1 {
+                        tex_origin_1 = face_file[i + 1] as u32 + 256 * (face_file[i + 2] as u32);
+                        tex_origin_2 = face_file[i + 3] as u32;
+
+                        clut_x = face_file[i + 4] as usize;
+                        clut_y = face_file[i + 5] as usize;
+
+                        clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
+
+                        i += 7;
+                    } else if t < 2 {
+                        let offset = match has_normals {
+                            0 => is_quad + 4 + i,
+                            _ => is_quad * 2 + 7 + i,
+                        };
+
+                        if is_quad > 0 {
+                            faces.push(Triangle {
+                                indices: [
+                                    face_file[i + 1] as u16,
+                                    face_file[i + 2] as u16,
+                                    face_file[i + 3] as u16,
+                                ],
+                            });
+                            faces.push(Triangle {
+                                indices: [
+                                    face_file[i + 2] as u16,
+                                    face_file[i + 3] as u16,
+                                    face_file[i + 4] as u16,
+                                ],
+                            });
+
+                            let tex1 = (
+                                face_file[offset] as u32 + tex_origin_1,
+                                face_file[offset + 1] as u32 + tex_origin_2,
+                            );
+                            let tex2 = (
+                                face_file[offset + 2] as u32 + tex_origin_1,
+                                face_file[offset + 3] as u32 + tex_origin_2,
+                            );
+                            let tex3 = (
+                                face_file[offset + 4] as u32 + tex_origin_1,
+                                face_file[offset + 5] as u32 + tex_origin_2,
+                            );
+                            let tex4 = (
+                                face_file[offset + 6] as u32 + tex_origin_1,
+                                face_file[offset + 7] as u32 + tex_origin_2,
+                            );
+
+                            let tex1f = (tex1.0 as f64, tex1.1 as f64);
+                            let tex2f = (tex2.0 as f64, tex2.1 as f64);
+                            let tex3f = (tex3.0 as f64, tex3.1 as f64);
+                            let tex4f = (tex4.0 as f64, tex4.1 as f64);
+
+                            color_tex_tris(
+                                &mut texture_png,
+                                &texture_tim,
+                                clut,
+                                tex1f,
+                                tex2f,
+                                tex3f,
+                            );
+                            color_tex_tris(
+                                &mut texture_png,
+                                &texture_tim,
+                                clut,
+                                tex2f,
+                                tex3f,
+                                tex4f,
+                            );
+                        } else {
+                            faces.push(Triangle {
+                                indices: [
+                                    face_file[i + 1] as u16,
+                                    face_file[i + 2] as u16,
+                                    face_file[i + 3] as u16,
+                                ],
+                            });
+
+                            let tex1 = (
+                                face_file[offset] as u32 + tex_origin_1,
+                                face_file[offset + 1] as u32 + tex_origin_2,
+                            );
+                            let tex2 = (
+                                face_file[offset + 2] as u32 + tex_origin_1,
+                                face_file[offset + 3] as u32 + tex_origin_2,
+                            );
+                            let tex3 = (
+                                face_file[offset + 4] as u32 + tex_origin_1,
+                                face_file[offset + 5] as u32 + tex_origin_2,
+                            );
+
+                            let tex1f = (tex1.0 as f64, tex1.1 as f64);
+                            let tex2f = (tex2.0 as f64, tex2.1 as f64);
+                            let tex3f = (tex3.0 as f64, tex3.1 as f64);
+
+                            color_tex_tris(
+                                &mut texture_png,
+                                &texture_tim,
+                                clut,
+                                tex1f,
+                                tex2f,
+                                tex3f,
+                            );
+                        }
+
+                        let mut face_length_in_bytes = is_quad + 3;
+
+                        if is_textured != 0 {
+                            face_length_in_bytes *= 2;
+                        }
+
+                        if has_normals != 0 {
+                            face_length_in_bytes *= 2;
+                        }
+
+                        i += face_length_in_bytes + 1;
+                    } else if t < 6 {
+                        i += 4;
                     }
-
-                    let mut face_length_in_bytes = is_quad + 3;
-
-                    if s2 != 0 {
-                        face_length_in_bytes *= 2;
-                    }
-
-                    if s5 != 0 {
-                        face_length_in_bytes *= 2;
-                    }
-
-                    i += face_length_in_bytes + 1;
-                } else if t < 6 {
-                    i += 4;
                 }
-            } else {
-                match ctype {
-                    8 => is_quad = t,
-                    9 => s2 = t,
-                    0xc => s5 = t,
-                    _ => {}
-                }
+                _ => {
+                    match ctype {
+                        8 => is_quad = t,
+                        9 => is_textured = t,
+                        0xc => has_normals = t,
+                        _ => {}
+                    }
 
-                i += 1;
+                    i += 1;
+                }
             }
         }
 
@@ -274,6 +456,10 @@ fn parts_to_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         faces_writer.write_all(&faces_bin).unwrap();
     }
 
+    texture_png
+        .save(format!("{TARGET}/{filename}/texture.png"))
+        .unwrap();
+
     root.push(json::Scene {
         extensions: Default::default(),
         extras: Default::default(),
@@ -301,5 +487,5 @@ fn main() {
 
     fs::create_dir_all(format!("{TARGET}/{filename}")).unwrap();
 
-    parts_to_gltf(&header, filename, &unpacked);
+    create_gltf(&header, filename, &unpacked);
 }

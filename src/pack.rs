@@ -26,7 +26,11 @@ impl From<Vec<u8>> for Packed {
 
         let mut offsets: Vec<u32> = vec![first_offset];
         for _ in 1..length {
-            offsets.push(u32::read(&mut reader).unwrap());
+            let offset = u32::read(&mut reader).unwrap();
+
+            if offset > 0 {
+                offsets.push(offset);
+            }
         }
 
         for i in 0..offsets.len() - 1 {

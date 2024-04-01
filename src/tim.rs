@@ -46,14 +46,14 @@ pub struct Image {
     _y: u16,
     _width: u16,
     _height: u16,
-    _bytes: Vec<u8>,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Tim {
     header: Header,
     clut: Option<Clut>,
-    image: Image,
+    pub image: Image,
 }
 
 impl From<Vec<u8>> for Tim {
@@ -112,7 +112,7 @@ impl From<Vec<u8>> for Tim {
             _y: image_y,
             _width: image_width,
             _height: image_height,
-            _bytes: ibytes[12..image_length as usize].into(),
+            bytes: ibytes[12..image_length as usize].into(),
         };
 
         Tim {
@@ -181,7 +181,7 @@ impl Into<Vec<u8>> for Tim {
         result.push(self.image._height as u8);
         result.push((self.image._height >> 8) as u8);
 
-        result.extend(self.image._bytes);
+        result.extend(self.image.bytes);
 
         result
     }
