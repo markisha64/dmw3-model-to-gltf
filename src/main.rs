@@ -156,7 +156,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let texture_tim = Tim::from(texture_raw);
 
-    let mut texture_png: RgbaImage = RgbaImage::new(256, 256);
+    let mut texture_png: RgbaImage = RgbaImage::new(256, 240);
 
     let mut nodes = Vec::new();
 
