@@ -6,6 +6,8 @@ use binread::{io::Cursor, BinRead};
 use clap::Parser;
 use gltf_json as json;
 use image::RgbaImage;
+use json::material::{EmissiveFactor, PbrBaseColorFactor, PbrMetallicRoughness, StrengthFactor};
+use json::texture::Info;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
 use rlen::rlen_decode;
@@ -39,6 +41,12 @@ struct Header {
 #[repr(C)]
 struct Vertex {
     position: [f32; 3],
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+struct Texel {
+    position: [f32; 2],
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -160,6 +168,60 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let mut nodes = Vec::new();
 
+    let image = root.push(json::Image {
+        buffer_view: None,
+        mime_type: None,
+        uri: Some("texture.png".into()),
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let sampler = root.push(json::texture::Sampler {
+        mag_filter: Some(Valid(json::texture::MagFilter::Nearest)),
+        min_filter: Some(Valid(json::texture::MinFilter::Nearest)),
+        wrap_s: Valid(json::texture::WrappingMode::Repeat),
+        wrap_t: Valid(json::texture::WrappingMode::Repeat),
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let texture = root.push(json::Texture {
+        sampler: Some(sampler),
+        source: image,
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let pbr = PbrMetallicRoughness {
+        base_color_texture: Some(Info {
+            index: texture,
+            tex_coord: 0,
+            extensions: Default::default(),
+            extras: Default::default(),
+        }),
+        base_color_factor: PbrBaseColorFactor {
+            0: [1.0, 1.0, 1.0, 1.0],
+        },
+        metallic_factor: StrengthFactor(0.0),
+        metallic_roughness_texture: None,
+        roughness_factor: StrengthFactor(0.0),
+        extensions: Default::default(),
+        extras: Default::default(),
+    };
+
+    let material = root.push(json::Material {
+        alpha_cutoff: None,
+        alpha_mode: Valid(json::material::AlphaMode::Blend),
+        double_sided: false,
+        pbr_metallic_roughness: pbr,
+        extensions: Default::default(),
+        extras: Default::default(),
+        normal_texture: None,
+        emissive_texture: None,
+        occlusion_texture: None,
+        emissive_factor: EmissiveFactor([0.0, 0.0, 0.0]),
+    });
+
     for (idx, part) in header.parts.iter().enumerate() {
         let vfile = &unpacked.files[part.triangles as usize];
 
@@ -188,6 +250,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         let face_file = &vfile[faces_offset..];
 
         let mut faces: Vec<Triangle> = Vec::new();
+        let mut tex_coords: Vec<Texel> = Vec::new();
 
         let mut tex_origin_1 = 0;
         let mut tex_origin_2 = 0;
@@ -262,6 +325,26 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 face_file[offset + 7] as u32 + tex_origin_2,
                             );
 
+                            tex_coords.push(Texel {
+                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 240.0],
+                            });
+                            tex_coords.push(Texel {
+                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 240.0],
+                            });
+                            tex_coords.push(Texel {
+                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 240.0],
+                            });
+
+                            tex_coords.push(Texel {
+                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 240.0],
+                            });
+                            tex_coords.push(Texel {
+                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 240.0],
+                            });
+                            tex_coords.push(Texel {
+                                position: [(tex4.0 as f32) / 256.0, (tex4.1 as f32) / 240.0],
+                            });
+
                             let tex1f = (tex1.0 as f64, tex1.1 as f64);
                             let tex2f = (tex2.0 as f64, tex2.1 as f64);
                             let tex3f = (tex3.0 as f64, tex3.1 as f64);
@@ -304,6 +387,16 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 face_file[offset + 4] as u32 + tex_origin_1,
                                 face_file[offset + 5] as u32 + tex_origin_2,
                             );
+
+                            tex_coords.push(Texel {
+                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 240.0],
+                            });
+                            tex_coords.push(Texel {
+                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 240.0],
+                            });
+                            tex_coords.push(Texel {
+                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 240.0],
+                            });
 
                             let tex1f = (tex1.0 as f64, tex1.1 as f64);
                             let tex2f = (tex2.0 as f64, tex2.1 as f64);
@@ -417,16 +510,54 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             sparse: None,
         });
 
+        let texture_buffer_length = tex_coords.len() * mem::size_of::<Texel>();
+        let texture_buffer = root.push(json::Buffer {
+            byte_length: USize64::from(texture_buffer_length),
+            extensions: Default::default(),
+            extras: Default::default(),
+            uri: Some(format!("tex_buffer{}.bin", idx)),
+        });
+
+        let texture_view = root.push(json::buffer::View {
+            buffer: texture_buffer,
+            byte_length: USize64::from(texture_buffer_length),
+            byte_offset: None,
+            byte_stride: Some(json::buffer::Stride(mem::size_of::<Texel>())),
+            extensions: Default::default(),
+            extras: Default::default(),
+            target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+        });
+
+        let tex_coords_accessor = root.push(json::Accessor {
+            buffer_view: Some(texture_view),
+            byte_offset: Some(USize64(0)),
+            count: USize64::from(tex_coords.len()),
+            component_type: Valid(json::accessor::GenericComponentType(
+                json::accessor::ComponentType::F32,
+            )),
+            extensions: Default::default(),
+            extras: Default::default(),
+            type_: Valid(json::accessor::Type::Vec2),
+            min: None,
+            max: None,
+            normalized: false,
+            sparse: None,
+        });
+
         let primitive = json::mesh::Primitive {
             attributes: {
                 let mut map = std::collections::BTreeMap::new();
                 map.insert(Valid(json::mesh::Semantic::Positions), positions);
+                map.insert(
+                    Valid(json::mesh::Semantic::TexCoords(0)),
+                    tex_coords_accessor,
+                );
                 map
             },
             extensions: Default::default(),
             extras: Default::default(),
             indices: Some(indices),
-            material: None,
+            material: Some(material),
             mode: Valid(json::mesh::Mode::Triangles),
             targets: None,
         };
@@ -454,6 +585,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         let mut faces_writer =
             fs::File::create(format!("{TARGET}/{filename}/face_buffer{}.bin", idx)).unwrap();
         faces_writer.write_all(&faces_bin).unwrap();
+
+        let tex_coords_bin = to_padded_byte_vector(tex_coords);
+        let mut tex_coords_writer =
+            fs::File::create(format!("{TARGET}/{filename}/tex_buffer{}.bin", idx)).unwrap();
+        tex_coords_writer.write_all(&tex_coords_bin).unwrap();
     }
 
     texture_png
