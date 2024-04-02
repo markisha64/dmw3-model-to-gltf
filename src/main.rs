@@ -49,12 +49,6 @@ struct Texel {
     position: [f32; 2],
 }
 
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
-struct Triangle {
-    indices: [u16; 3],
-}
-
 const TARGET: &str = "new";
 const DIVISOR: f32 = 256.0;
 
@@ -231,7 +225,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
         let vert_count = u16::from_le_bytes([verts[0], verts[1]]) as usize;
 
-        let vertices: Vec<Vertex> = verts[6..]
+        let vertices_sparse: Vec<Vertex> = verts[6..]
             .chunks_exact(6)
             .take(vert_count)
             .map(|chunk| {
@@ -249,9 +243,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
         let face_file = &vfile[faces_offset..];
 
-        let mut faces: Vec<Triangle> = Vec::new();
         let mut tex_coords: Vec<Texel> = Vec::new();
-        tex_coords.resize(vert_count, Texel { position: [0.0; 2] });
+        let mut vertices: Vec<Vertex> = Vec::new();
 
         let mut tex_origin_1 = 0;
         let mut tex_origin_2 = 0;
@@ -294,20 +287,13 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                         };
 
                         if is_quad > 0 {
-                            faces.push(Triangle {
-                                indices: [
-                                    face_file[i + 1] as u16,
-                                    face_file[i + 2] as u16,
-                                    face_file[i + 3] as u16,
-                                ],
-                            });
-                            faces.push(Triangle {
-                                indices: [
-                                    face_file[i + 2] as u16,
-                                    face_file[i + 3] as u16,
-                                    face_file[i + 4] as u16,
-                                ],
-                            });
+                            vertices.push(vertices_sparse[face_file[i + 1] as usize]);
+                            vertices.push(vertices_sparse[face_file[i + 2] as usize]);
+                            vertices.push(vertices_sparse[face_file[i + 3] as usize]);
+
+                            vertices.push(vertices_sparse[face_file[i + 2] as usize]);
+                            vertices.push(vertices_sparse[face_file[i + 3] as usize]);
+                            vertices.push(vertices_sparse[face_file[i + 4] as usize]);
 
                             let tex1 = (
                                 face_file[offset] as u32 + tex_origin_1,
@@ -326,18 +312,25 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 face_file[offset + 7] as u32 + tex_origin_2,
                             );
 
-                            tex_coords[face_file[i + 1] as usize] = Texel {
+                            tex_coords.push(Texel {
                                 position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
-                            };
-                            tex_coords[face_file[i + 2] as usize] = Texel {
+                            });
+                            tex_coords.push(Texel {
                                 position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
-                            };
-                            tex_coords[face_file[i + 3] as usize] = Texel {
+                            });
+                            tex_coords.push(Texel {
                                 position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
-                            };
-                            tex_coords[face_file[i + 4] as usize] = Texel {
+                            });
+
+                            tex_coords.push(Texel {
+                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
+                            });
+                            tex_coords.push(Texel {
+                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
+                            });
+                            tex_coords.push(Texel {
                                 position: [(tex4.0 as f32) / 256.0, (tex4.1 as f32) / 256.0],
-                            };
+                            });
 
                             let tex1f = (tex1.0 as f64, tex1.1 as f64);
                             let tex2f = (tex2.0 as f64, tex2.1 as f64);
@@ -361,13 +354,9 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 tex4f,
                             );
                         } else {
-                            faces.push(Triangle {
-                                indices: [
-                                    face_file[i + 1] as u16,
-                                    face_file[i + 2] as u16,
-                                    face_file[i + 3] as u16,
-                                ],
-                            });
+                            vertices.push(vertices_sparse[face_file[i + 1] as usize]);
+                            vertices.push(vertices_sparse[face_file[i + 2] as usize]);
+                            vertices.push(vertices_sparse[face_file[i + 3] as usize]);
 
                             let tex1 = (
                                 face_file[offset] as u32 + tex_origin_1,
@@ -381,16 +370,15 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 face_file[offset + 4] as u32 + tex_origin_1,
                                 face_file[offset + 5] as u32 + tex_origin_2,
                             );
-
-                            tex_coords[face_file[i + 1] as usize] = Texel {
+                            tex_coords.push(Texel {
                                 position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
-                            };
-                            tex_coords[face_file[i + 2] as usize] = Texel {
+                            });
+                            tex_coords.push(Texel {
                                 position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
-                            };
-                            tex_coords[face_file[i + 3] as usize] = Texel {
+                            });
+                            tex_coords.push(Texel {
                                 position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
-                            };
+                            });
 
                             let tex1f = (tex1.0 as f64, tex1.1 as f64);
                             let tex2f = (tex2.0 as f64, tex2.1 as f64);
@@ -468,42 +456,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             sparse: None,
         });
 
-        let faces_buffer_length = faces.len() * mem::size_of::<Triangle>();
-        let faces_buffer = root.push(json::Buffer {
-            byte_length: USize64::from(faces_buffer_length),
-            extensions: Default::default(),
-            extras: Default::default(),
-            uri: Some(format!("face_buffer{}.bin", idx)),
-        });
-
-        let faces_view = root.push(json::buffer::View {
-            buffer: faces_buffer,
-            byte_length: USize64::from(faces_buffer_length),
-            byte_offset: None,
-            byte_stride: Some(json::buffer::Stride(mem::size_of::<u16>())),
-            extensions: Default::default(),
-            extras: Default::default(),
-            target: Some(Valid(json::buffer::Target::ElementArrayBuffer)),
-        });
-
-        let indices = root.push(json::Accessor {
-            buffer_view: Some(faces_view),
-            byte_offset: Some(USize64(0)),
-            count: USize64::from(
-                (faces.len() * mem::size_of::<Triangle>()) / mem::size_of::<u16>(),
-            ),
-            component_type: Valid(json::accessor::GenericComponentType(
-                json::accessor::ComponentType::U16,
-            )),
-            extensions: Default::default(),
-            extras: Default::default(),
-            type_: Valid(json::accessor::Type::Scalar),
-            min: None,
-            max: None,
-            normalized: false,
-            sparse: None,
-        });
-
         let texture_buffer_length = tex_coords.len() * mem::size_of::<Texel>();
         let texture_buffer = root.push(json::Buffer {
             byte_length: USize64::from(texture_buffer_length),
@@ -550,7 +502,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             },
             extensions: Default::default(),
             extras: Default::default(),
-            indices: Some(indices),
+            indices: None,
             material: Some(material),
             mode: Valid(json::mesh::Mode::Triangles),
             targets: None,
@@ -574,11 +526,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         let mut vertex_writer =
             fs::File::create(format!("{TARGET}/{filename}/vertex_buffer{}.bin", idx)).unwrap();
         vertex_writer.write_all(&vertex_bin).unwrap();
-
-        let faces_bin = to_padded_byte_vector(faces);
-        let mut faces_writer =
-            fs::File::create(format!("{TARGET}/{filename}/face_buffer{}.bin", idx)).unwrap();
-        faces_writer.write_all(&faces_bin).unwrap();
 
         let tex_coords_bin = to_padded_byte_vector(tex_coords);
         let mut tex_coords_writer =
