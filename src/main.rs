@@ -164,7 +164,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let texture_tim = Tim::from(texture_raw);
 
-    let mut texture_png: RgbaImage = RgbaImage::new(256, 240);
+    let mut texture_png: RgbaImage = RgbaImage::new(256, 256);
 
     let mut nodes = Vec::new();
 
@@ -200,7 +200,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             extras: Default::default(),
         }),
         base_color_factor: PbrBaseColorFactor {
-            0: [1.0, 1.0, 1.0, 1.0],
+            0: [0.0, 0.0, 0.0, 0.0],
         },
         metallic_factor: StrengthFactor(0.0),
         metallic_roughness_texture: None,
@@ -211,8 +211,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let material = root.push(json::Material {
         alpha_cutoff: None,
-        alpha_mode: Valid(json::material::AlphaMode::Blend),
-        double_sided: false,
+        alpha_mode: Valid(json::material::AlphaMode::Opaque),
+        double_sided: true,
         pbr_metallic_roughness: pbr,
         extensions: Default::default(),
         extras: Default::default(),
@@ -251,6 +251,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
         let mut faces: Vec<Triangle> = Vec::new();
         let mut tex_coords: Vec<Texel> = Vec::new();
+        tex_coords.resize(vert_count, Texel { position: [0.0; 2] });
 
         let mut tex_origin_1 = 0;
         let mut tex_origin_2 = 0;
@@ -325,25 +326,18 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 face_file[offset + 7] as u32 + tex_origin_2,
                             );
 
-                            tex_coords.push(Texel {
-                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 240.0],
-                            });
-                            tex_coords.push(Texel {
-                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 240.0],
-                            });
-                            tex_coords.push(Texel {
-                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 240.0],
-                            });
-
-                            tex_coords.push(Texel {
-                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 240.0],
-                            });
-                            tex_coords.push(Texel {
-                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 240.0],
-                            });
-                            tex_coords.push(Texel {
-                                position: [(tex4.0 as f32) / 256.0, (tex4.1 as f32) / 240.0],
-                            });
+                            tex_coords[face_file[i + 1] as usize] = Texel {
+                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
+                            };
+                            tex_coords[face_file[i + 2] as usize] = Texel {
+                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
+                            };
+                            tex_coords[face_file[i + 3] as usize] = Texel {
+                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
+                            };
+                            tex_coords[face_file[i + 4] as usize] = Texel {
+                                position: [(tex4.0 as f32) / 256.0, (tex4.1 as f32) / 256.0],
+                            };
 
                             let tex1f = (tex1.0 as f64, tex1.1 as f64);
                             let tex2f = (tex2.0 as f64, tex2.1 as f64);
@@ -388,15 +382,15 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 face_file[offset + 5] as u32 + tex_origin_2,
                             );
 
-                            tex_coords.push(Texel {
-                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 240.0],
-                            });
-                            tex_coords.push(Texel {
-                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 240.0],
-                            });
-                            tex_coords.push(Texel {
-                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 240.0],
-                            });
+                            tex_coords[face_file[i + 1] as usize] = Texel {
+                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
+                            };
+                            tex_coords[face_file[i + 2] as usize] = Texel {
+                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
+                            };
+                            tex_coords[face_file[i + 3] as usize] = Texel {
+                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
+                            };
 
                             let tex1f = (tex1.0 as f64, tex1.1 as f64);
                             let tex2f = (tex2.0 as f64, tex2.1 as f64);
