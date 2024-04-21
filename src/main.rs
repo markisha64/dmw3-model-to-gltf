@@ -29,6 +29,14 @@ struct PartPacked {
     _f2: u32,
 }
 
+#[derive(Copy, Clone, Debug)]
+struct Part {
+    vert_offset: usize,
+    vert_len: usize,
+    tex_offset: usize,
+    tex_len: usize,
+}
+
 #[derive(BinRead)]
 struct Header {
     texture_offset: u32,
@@ -216,7 +224,14 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         emissive_factor: EmissiveFactor([0.0, 0.0, 0.0]),
     });
 
-    for (idx, part) in header.parts.iter().enumerate() {
+    let mut parts: Vec<Part> = Vec::new();
+    let mut vertices: Vec<Vertex> = Vec::new();
+    let mut tex_coords: Vec<Texel> = Vec::new();
+
+    let vertices_ref = &mut vertices;
+    let tex_coords_ref = &mut tex_coords;
+
+    for part in header.parts.iter() {
         let vfile = &unpacked.files[part.triangles as usize];
 
         let verts_offset = u32::from_le_bytes([vfile[0], vfile[1], vfile[2], vfile[3]]) as usize;
@@ -243,8 +258,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
         let face_file = &vfile[faces_offset..];
 
-        let mut tex_coords: Vec<Texel> = Vec::new();
-        let mut vertices: Vec<Vertex> = Vec::new();
+        let old_vertex_len = vertices_ref.len();
+        let old_tex_len = tex_coords_ref.len();
 
         let mut tex_origin_1 = 0;
         let mut tex_origin_2 = 0;
@@ -287,13 +302,13 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                         };
 
                         if is_quad > 0 {
-                            vertices.push(vertices_sparse[face_file[i + 1] as usize]);
-                            vertices.push(vertices_sparse[face_file[i + 2] as usize]);
-                            vertices.push(vertices_sparse[face_file[i + 3] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 1] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 2] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 3] as usize]);
 
-                            vertices.push(vertices_sparse[face_file[i + 2] as usize]);
-                            vertices.push(vertices_sparse[face_file[i + 3] as usize]);
-                            vertices.push(vertices_sparse[face_file[i + 4] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 2] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 3] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 4] as usize]);
 
                             let tex1 = (
                                 (face_file[offset] as u32 + tex_origin_1) % 256,
@@ -312,23 +327,23 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 (face_file[offset + 7] as u32 + tex_origin_2) % 256,
                             );
 
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
                             });
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
                             });
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
                             });
 
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
                             });
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
                             });
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex4.0 as f32) / 256.0, (tex4.1 as f32) / 256.0],
                             });
 
@@ -354,9 +369,9 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 tex4f,
                             );
                         } else {
-                            vertices.push(vertices_sparse[face_file[i + 1] as usize]);
-                            vertices.push(vertices_sparse[face_file[i + 2] as usize]);
-                            vertices.push(vertices_sparse[face_file[i + 3] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 1] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 2] as usize]);
+                            vertices_ref.push(vertices_sparse[face_file[i + 3] as usize]);
 
                             let tex1 = (
                                 (face_file[offset] as u32 + tex_origin_1) % 256,
@@ -370,13 +385,13 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 (face_file[offset + 4] as u32 + tex_origin_1) % 256,
                                 (face_file[offset + 5] as u32 + tex_origin_2) % 256,
                             );
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
                             });
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
                             });
-                            tex_coords.push(Texel {
+                            tex_coords_ref.push(Texel {
                                 position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
                             });
 
@@ -422,28 +437,55 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             }
         }
 
-        let vertex_buffer_length = vertices.len() * mem::size_of::<Vertex>();
-        let vertex_buffer = root.push(json::Buffer {
-            byte_length: USize64::from(vertex_buffer_length),
-            extensions: Default::default(),
-            extras: Default::default(),
-            uri: Some(format!("vertex_buffer{}.bin", idx)),
+        parts.push(Part {
+            vert_offset: old_vertex_len,
+            vert_len: vertices_ref.len() - old_vertex_len,
+            tex_offset: old_tex_len,
+            tex_len: tex_coords_ref.len() - old_tex_len,
         });
+    }
 
-        let vertex_view = root.push(json::buffer::View {
-            buffer: vertex_buffer,
-            byte_length: USize64::from(vertex_buffer_length),
-            byte_offset: None,
-            byte_stride: Some(json::buffer::Stride(mem::size_of::<Vertex>())),
-            extensions: Default::default(),
-            extras: Default::default(),
-            target: Some(Valid(json::buffer::Target::ArrayBuffer)),
-        });
+    let texture_buffer_length = tex_coords_ref.len() * mem::size_of::<Texel>();
+    let texture_buffer = root.push(json::Buffer {
+        byte_length: USize64::from(texture_buffer_length),
+        extensions: Default::default(),
+        extras: Default::default(),
+        uri: Some("tex_buffer.bin".into()),
+    });
 
+    let texture_view = root.push(json::buffer::View {
+        buffer: texture_buffer,
+        byte_length: USize64::from(texture_buffer_length),
+        byte_offset: None,
+        byte_stride: Some(json::buffer::Stride(mem::size_of::<Texel>())),
+        extensions: Default::default(),
+        extras: Default::default(),
+        target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+    });
+
+    let vertex_buffer_length = vertices_ref.len() * mem::size_of::<Vertex>();
+    let vertex_buffer = root.push(json::Buffer {
+        byte_length: USize64::from(vertex_buffer_length),
+        extensions: Default::default(),
+        extras: Default::default(),
+        uri: Some(format!("vertex_buffer.bin")),
+    });
+
+    let vertex_view = root.push(json::buffer::View {
+        buffer: vertex_buffer,
+        byte_length: USize64::from(vertex_buffer_length),
+        byte_offset: None,
+        byte_stride: Some(json::buffer::Stride(mem::size_of::<Vertex>())),
+        extensions: Default::default(),
+        extras: Default::default(),
+        target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+    });
+
+    for part in parts.iter() {
         let positions = root.push(json::Accessor {
             buffer_view: Some(vertex_view),
-            byte_offset: Some(USize64(0)),
-            count: USize64::from(vertices.len()),
+            byte_offset: Some(USize64::from(part.vert_offset * mem::size_of::<Vertex>())),
+            count: USize64::from(part.vert_len),
             component_type: Valid(json::accessor::GenericComponentType(
                 json::accessor::ComponentType::F32,
             )),
@@ -456,28 +498,10 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             sparse: None,
         });
 
-        let texture_buffer_length = tex_coords.len() * mem::size_of::<Texel>();
-        let texture_buffer = root.push(json::Buffer {
-            byte_length: USize64::from(texture_buffer_length),
-            extensions: Default::default(),
-            extras: Default::default(),
-            uri: Some(format!("tex_buffer{}.bin", idx)),
-        });
-
-        let texture_view = root.push(json::buffer::View {
-            buffer: texture_buffer,
-            byte_length: USize64::from(texture_buffer_length),
-            byte_offset: None,
-            byte_stride: Some(json::buffer::Stride(mem::size_of::<Texel>())),
-            extensions: Default::default(),
-            extras: Default::default(),
-            target: Some(Valid(json::buffer::Target::ArrayBuffer)),
-        });
-
         let tex_coords_accessor = root.push(json::Accessor {
             buffer_view: Some(texture_view),
-            byte_offset: Some(USize64(0)),
-            count: USize64::from(tex_coords.len()),
+            byte_offset: Some(USize64::from(part.tex_offset * mem::size_of::<Texel>())),
+            count: USize64::from(part.tex_len),
             component_type: Valid(json::accessor::GenericComponentType(
                 json::accessor::ComponentType::F32,
             )),
@@ -521,17 +545,17 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         });
 
         nodes.push(node);
-
-        let vertex_bin = to_padded_byte_vector(vertices);
-        let mut vertex_writer =
-            fs::File::create(format!("{TARGET}/{filename}/vertex_buffer{}.bin", idx)).unwrap();
-        vertex_writer.write_all(&vertex_bin).unwrap();
-
-        let tex_coords_bin = to_padded_byte_vector(tex_coords);
-        let mut tex_coords_writer =
-            fs::File::create(format!("{TARGET}/{filename}/tex_buffer{}.bin", idx)).unwrap();
-        tex_coords_writer.write_all(&tex_coords_bin).unwrap();
     }
+
+    let vertex_bin = to_padded_byte_vector(vertices);
+    let mut vertex_writer =
+        fs::File::create(format!("{TARGET}/{filename}/vertex_buffer.bin")).unwrap();
+    vertex_writer.write_all(&vertex_bin).unwrap();
+
+    let tex_coords_bin = to_padded_byte_vector(tex_coords);
+    let mut tex_coords_writer =
+        fs::File::create(format!("{TARGET}/{filename}/tex_buffer.bin")).unwrap();
+    tex_coords_writer.write_all(&tex_coords_bin).unwrap();
 
     texture_png
         .save(format!("{TARGET}/{filename}/texture.png"))
