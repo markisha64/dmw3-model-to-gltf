@@ -24,7 +24,7 @@ struct Args {
 
 #[derive(BinRead)]
 struct PartPacked {
-    _id: u32,
+    _parent_index: u32,
     triangles: u32,
     _f2: u32,
 }
