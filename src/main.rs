@@ -296,20 +296,20 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                             vertices.push(vertices_sparse[face_file[i + 4] as usize]);
 
                             let tex1 = (
-                                face_file[offset] as u32 + tex_origin_1,
-                                face_file[offset + 1] as u32 + tex_origin_2,
+                                (face_file[offset] as u32 + tex_origin_1) % 256,
+                                (face_file[offset + 1] as u32 + tex_origin_2) % 256,
                             );
                             let tex2 = (
-                                face_file[offset + 2] as u32 + tex_origin_1,
-                                face_file[offset + 3] as u32 + tex_origin_2,
+                                (face_file[offset + 2] as u32 + tex_origin_1) % 256,
+                                (face_file[offset + 3] as u32 + tex_origin_2) % 256,
                             );
                             let tex3 = (
-                                face_file[offset + 4] as u32 + tex_origin_1,
-                                face_file[offset + 5] as u32 + tex_origin_2,
+                                (face_file[offset + 4] as u32 + tex_origin_1) % 256,
+                                (face_file[offset + 5] as u32 + tex_origin_2) % 256,
                             );
                             let tex4 = (
-                                face_file[offset + 6] as u32 + tex_origin_1,
-                                face_file[offset + 7] as u32 + tex_origin_2,
+                                (face_file[offset + 6] as u32 + tex_origin_1) % 256,
+                                (face_file[offset + 7] as u32 + tex_origin_2) % 256,
                             );
 
                             tex_coords.push(Texel {
@@ -359,16 +359,16 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                             vertices.push(vertices_sparse[face_file[i + 3] as usize]);
 
                             let tex1 = (
-                                face_file[offset] as u32 + tex_origin_1,
-                                face_file[offset + 1] as u32 + tex_origin_2,
+                                (face_file[offset] as u32 + tex_origin_1) % 256,
+                                (face_file[offset + 1] as u32 + tex_origin_2) % 256,
                             );
                             let tex2 = (
-                                face_file[offset + 2] as u32 + tex_origin_1,
-                                face_file[offset + 3] as u32 + tex_origin_2,
+                                (face_file[offset + 2] as u32 + tex_origin_1) % 256,
+                                (face_file[offset + 3] as u32 + tex_origin_2) % 256,
                             );
                             let tex3 = (
-                                face_file[offset + 4] as u32 + tex_origin_1,
-                                face_file[offset + 5] as u32 + tex_origin_2,
+                                (face_file[offset + 4] as u32 + tex_origin_1) % 256,
+                                (face_file[offset + 5] as u32 + tex_origin_2) % 256,
                             );
                             tex_coords.push(Texel {
                                 position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
