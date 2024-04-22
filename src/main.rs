@@ -10,6 +10,7 @@ use json::material::{EmissiveFactor, PbrBaseColorFactor, PbrMetallicRoughness, S
 use json::texture::Info;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
+use json::Index;
 use rlen::rlen_decode;
 use std::io::Write;
 use std::path::PathBuf;
@@ -24,13 +25,14 @@ struct Args {
 
 #[derive(BinRead)]
 struct PartPacked {
-    _parent_index: u32,
+    parent_index: u32,
     triangles: u32,
     _f2: u32,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Part {
+    parent_index: Option<usize>,
     vert_offset: usize,
     vert_len: usize,
     tex_offset: usize,
@@ -230,6 +232,15 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let vertices_ref = &mut vertices;
     let tex_coords_ref = &mut tex_coords;
+
+    // root
+    parts.push(Part {
+        parent_index: None,
+        vert_offset: 0,
+        vert_len: 0,
+        tex_offset: 0,
+        tex_len: 0,
+    });
 
     for part in header.parts.iter() {
         let vfile = &unpacked.files[part.triangles as usize];
@@ -438,11 +449,20 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         }
 
         parts.push(Part {
+            parent_index: Some(part.parent_index as usize),
             vert_offset: old_vertex_len,
             vert_len: vertices_ref.len() - old_vertex_len,
             tex_offset: old_tex_len,
             tex_len: tex_coords_ref.len() - old_tex_len,
         });
+    }
+
+    let mut part_children: Vec<Vec<usize>> = parts.iter().map(|_| Vec::new()).collect();
+
+    for (idx, part) in parts.iter().enumerate() {
+        if let Some(parent) = part.parent_index {
+            part_children[parent].push(idx);
+        }
     }
 
     let texture_buffer_length = tex_coords_ref.len() * mem::size_of::<Texel>();
@@ -481,66 +501,77 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
-    for part in parts.iter() {
-        let positions = root.push(json::Accessor {
-            buffer_view: Some(vertex_view),
-            byte_offset: Some(USize64::from(part.vert_offset * mem::size_of::<Vertex>())),
-            count: USize64::from(part.vert_len),
-            component_type: Valid(json::accessor::GenericComponentType(
-                json::accessor::ComponentType::F32,
-            )),
-            extensions: Default::default(),
-            extras: Default::default(),
-            type_: Valid(json::accessor::Type::Vec3),
-            min: None,
-            max: None,
-            normalized: false,
-            sparse: None,
-        });
+    for (idx, part) in parts.iter().enumerate() {
+        let mesh = match part.vert_len != 0 {
+            true => {
+                let positions = root.push(json::Accessor {
+                    buffer_view: Some(vertex_view),
+                    byte_offset: Some(USize64::from(part.vert_offset * mem::size_of::<Vertex>())),
+                    count: USize64::from(part.vert_len),
+                    component_type: Valid(json::accessor::GenericComponentType(
+                        json::accessor::ComponentType::F32,
+                    )),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    type_: Valid(json::accessor::Type::Vec3),
+                    min: None,
+                    max: None,
+                    normalized: false,
+                    sparse: None,
+                });
 
-        let tex_coords_accessor = root.push(json::Accessor {
-            buffer_view: Some(texture_view),
-            byte_offset: Some(USize64::from(part.tex_offset * mem::size_of::<Texel>())),
-            count: USize64::from(part.tex_len),
-            component_type: Valid(json::accessor::GenericComponentType(
-                json::accessor::ComponentType::F32,
-            )),
-            extensions: Default::default(),
-            extras: Default::default(),
-            type_: Valid(json::accessor::Type::Vec2),
-            min: None,
-            max: None,
-            normalized: false,
-            sparse: None,
-        });
+                let tex_coords_accessor = root.push(json::Accessor {
+                    buffer_view: Some(texture_view),
+                    byte_offset: Some(USize64::from(part.tex_offset * mem::size_of::<Texel>())),
+                    count: USize64::from(part.tex_len),
+                    component_type: Valid(json::accessor::GenericComponentType(
+                        json::accessor::ComponentType::F32,
+                    )),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    type_: Valid(json::accessor::Type::Vec2),
+                    min: None,
+                    max: None,
+                    normalized: false,
+                    sparse: None,
+                });
 
-        let primitive = json::mesh::Primitive {
-            attributes: {
-                let mut map = std::collections::BTreeMap::new();
-                map.insert(Valid(json::mesh::Semantic::Positions), positions);
-                map.insert(
-                    Valid(json::mesh::Semantic::TexCoords(0)),
-                    tex_coords_accessor,
-                );
-                map
-            },
-            extensions: Default::default(),
-            extras: Default::default(),
-            indices: None,
-            material: Some(material),
-            mode: Valid(json::mesh::Mode::Triangles),
-            targets: None,
+                let primitive = json::mesh::Primitive {
+                    attributes: {
+                        let mut map = std::collections::BTreeMap::new();
+                        map.insert(Valid(json::mesh::Semantic::Positions), positions);
+                        map.insert(
+                            Valid(json::mesh::Semantic::TexCoords(0)),
+                            tex_coords_accessor,
+                        );
+                        map
+                    },
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    indices: None,
+                    material: Some(material),
+                    mode: Valid(json::mesh::Mode::Triangles),
+                    targets: None,
+                };
+
+                Some(root.push(json::Mesh {
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    primitives: vec![primitive],
+                    weights: None,
+                }))
+            }
+            false => None,
         };
 
-        let mesh = root.push(json::Mesh {
-            extensions: Default::default(),
-            extras: Default::default(),
-            primitives: vec![primitive],
-            weights: None,
-        });
-
         let node = root.push(json::Node {
-            mesh: Some(mesh),
+            mesh,
+            children: Some(
+                part_children[idx]
+                    .iter()
+                    .map(|pc| Index::new(*pc as u32))
+                    .collect(),
+            ),
             ..Default::default()
         });
 
