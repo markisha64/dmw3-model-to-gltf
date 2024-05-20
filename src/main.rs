@@ -7,6 +7,7 @@ use clap::Parser;
 use gltf_json as json;
 use image::RgbaImage;
 use json::material::{EmissiveFactor, PbrBaseColorFactor, PbrMetallicRoughness, StrengthFactor};
+use json::scene::UnitQuaternion;
 use json::texture::Info;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
@@ -26,8 +27,24 @@ struct Args {
 #[derive(BinRead)]
 struct PartPacked {
     parent_index: u32,
-    triangles: u32,
-    _f2: u32,
+    geometry: u32,
+    animation: u32,
+}
+
+#[derive(BinRead)]
+struct AnimationInst {
+    _t: i16,
+    len: i16,
+    c: i16,
+    d: i16,
+}
+
+#[derive(BinRead, Debug)]
+struct AnimationFrame {
+    vx: i16,
+    vy: i16,
+    id: i16,
+    vz: i16,
 }
 
 #[derive(Clone, Debug)]
@@ -37,6 +54,7 @@ struct Part {
     vert_len: usize,
     tex_offset: usize,
     tex_len: usize,
+    animation: usize,
 }
 
 #[derive(BinRead)]
@@ -157,6 +175,55 @@ fn color_tex_tris(
 fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     let mut root = json::Root::default();
 
+    let animation_packed = pack::Packed::from(unpacked.files[0].clone());
+
+    let mut animation_0_reader = Cursor::new(&animation_packed.files[0]);
+
+    let mut instructions = Vec::new();
+
+    for _ in 0..animation_packed.files[0].len() / 16 {
+        instructions.push(AnimationInst::read(&mut animation_0_reader).unwrap());
+    }
+
+    let frame = instructions
+        .iter()
+        .find(|x| x.d != 0 && x.len > 0)
+        .unwrap()
+        .c;
+
+    let animations: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
+
+    let animation_files: Vec<Option<Vec<Vec<AnimationFrame>>>> = unpacked
+        .files
+        .iter()
+        .enumerate()
+        .map(|(idx, part)| {
+            if !animations.contains(&(idx as u32)) {
+                return None;
+            }
+
+            let upkg = pack::Packed::from(part.clone());
+
+            Some(
+                upkg.files
+                    .iter()
+                    .take(2)
+                    .map(|buf| {
+                        let mut reader = Cursor::new(&buf);
+
+                        let mut res = Vec::new();
+
+                        for _ in 0..buf.len() / 16 {
+                            res.push(AnimationFrame::read(&mut reader).unwrap());
+                        }
+
+                        res
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+
     let texture_packed_raw = &unpacked.files[header.texture_offset as usize];
 
     let texture_packed = pack::Packed::from(texture_packed_raw.clone());
@@ -235,6 +302,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     // root
     parts.push(Part {
+        animation: 0,
         parent_index: None,
         vert_offset: 0,
         vert_len: 0,
@@ -243,7 +311,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     });
 
     for part in header.parts.iter() {
-        let vfile = &unpacked.files[part.triangles as usize];
+        let vfile = &unpacked.files[part.geometry as usize];
 
         let verts_offset = u32::from_le_bytes([vfile[0], vfile[1], vfile[2], vfile[3]]) as usize;
 
@@ -449,6 +517,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         }
 
         parts.push(Part {
+            animation: part.animation as usize,
             parent_index: Some(part.parent_index as usize),
             vert_offset: old_vertex_len,
             vert_len: vertices_ref.len() - old_vertex_len,
@@ -564,6 +633,41 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             false => None,
         };
 
+        let translation = match part.vert_len != 0 {
+            true => {
+                let anim_frame = animation_files[part.animation].as_ref().unwrap()[0]
+                    .iter()
+                    .find(|x| x.id >= frame)
+                    .or(animation_files[part.animation].as_ref().unwrap()[0].last())
+                    .unwrap();
+
+                Some([
+                    anim_frame.vx as f32 / DIVISOR,
+                    anim_frame.vy as f32 / DIVISOR,
+                    anim_frame.vz as f32 / DIVISOR,
+                ])
+            }
+            false => None,
+        };
+
+        let _rotation = match part.vert_len != 0 {
+            true => {
+                let anim_frame = animation_files[part.animation].as_ref().unwrap()[1]
+                    .iter()
+                    .find(|x| x.id >= frame)
+                    .or(animation_files[part.animation].as_ref().unwrap()[1].last())
+                    .unwrap();
+
+                Some(UnitQuaternion([
+                    anim_frame.vx as f32 / DIVISOR,
+                    anim_frame.vy as f32 / DIVISOR,
+                    anim_frame.vz as f32 / DIVISOR,
+                    1.0,
+                ]))
+            }
+            false => None,
+        };
+
         let node = root.push(json::Node {
             mesh,
             children: Some(
@@ -572,6 +676,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                     .map(|pc| Index::new(*pc as u32))
                     .collect(),
             ),
+            translation,
+            // rotation,
             ..Default::default()
         });
 
