@@ -7,7 +7,6 @@ use clap::Parser;
 use gltf_json as json;
 use image::RgbaImage;
 use json::material::{EmissiveFactor, PbrBaseColorFactor, PbrMetallicRoughness, StrengthFactor};
-use json::scene::UnitQuaternion;
 use json::texture::Info;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
@@ -78,7 +77,7 @@ struct Texel {
 }
 
 const TARGET: &str = "new";
-const DIVISOR: f32 = 256.0;
+const MULTIPLIER: f32 = 1.0 / 256.0;
 
 type Point = (u32, u32);
 type PointFloat = (f64, f64);
@@ -328,7 +327,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                 let z: f32 = i16::from_le_bytes([chunk[4], chunk[5]]).into();
 
                 return Vertex {
-                    position: [x / DIVISOR, y / DIVISOR, z / DIVISOR],
+                    position: [x * MULTIPLIER, y * MULTIPLIER, z * MULTIPLIER],
                 };
             })
             .collect();
@@ -642,28 +641,10 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                     .unwrap();
 
                 Some([
-                    anim_frame.vx as f32 / DIVISOR,
-                    anim_frame.vy as f32 / DIVISOR,
-                    anim_frame.vz as f32 / DIVISOR,
+                    anim_frame.vx as f32 * MULTIPLIER,
+                    anim_frame.vy as f32 * MULTIPLIER,
+                    anim_frame.vz as f32 * MULTIPLIER,
                 ])
-            }
-            false => None,
-        };
-
-        let _rotation = match part.vert_len != 0 {
-            true => {
-                let anim_frame = animation_files[part.animation].as_ref().unwrap()[1]
-                    .iter()
-                    .find(|x| x.id >= frame)
-                    .or(animation_files[part.animation].as_ref().unwrap()[1].last())
-                    .unwrap();
-
-                Some(UnitQuaternion([
-                    anim_frame.vx as f32 / DIVISOR,
-                    anim_frame.vy as f32 / DIVISOR,
-                    anim_frame.vz as f32 / DIVISOR,
-                    1.0,
-                ]))
             }
             false => None,
         };
@@ -677,7 +658,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                     .collect(),
             ),
             translation,
-            // rotation,
             ..Default::default()
         });
 
