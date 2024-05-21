@@ -11,15 +11,11 @@ binwrite = "0.2.1"
 clap = { version = "4.5.3", features = ["derive"] }
 gltf-json = { version = "1.4.0", path = "gltf/gltf-json" }
 image = "0.25.1"
+rlen = { path = "./rlen" }
+tim = { path = "./tim" }
 
-[[bin]]
-name = "main"
-path = "src/main.rs"
-
-[[bin]]
-name = "tim"
-path = "src/tim.rs"
-
-[[bin]]
-name = "rlen"
-path = "src/rlen.rs"
+[workspace]
+members = [
+  "rlen",
+  "tim"
+]

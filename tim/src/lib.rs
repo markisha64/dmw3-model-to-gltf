@@ -1,8 +1,3 @@
-use std::fs;
-use std::path::PathBuf;
-
-use clap::Parser;
-
 #[derive(Debug, Clone)]
 pub enum BPP {
     B4 = 0,
@@ -185,21 +180,4 @@ impl Into<Vec<u8>> for Tim {
 
         result
     }
-}
-
-#[derive(Parser, Debug, Clone)]
-struct Args {
-    file: PathBuf,
-}
-
-fn main() {
-    let args = Args::parse();
-
-    let file = fs::read(args.file).unwrap();
-
-    let tim = Tim::from(file);
-
-    let bytes: Vec<u8> = tim.into();
-
-    fs::write("new/new.tim", bytes).unwrap();
 }

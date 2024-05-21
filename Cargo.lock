@@ -332,6 +332,8 @@ dependencies = [
  "clap",
  "gltf-json",
  "image",
+ "rlen",
+ "tim",
 ]
 
 [[package]]
@@ -927,6 +929,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlen"
+version = "0.1.0"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1090,6 +1099,13 @@ dependencies = [
  "flate2",
  "jpeg-decoder",
  "weezl",
+]
+
+[[package]]
+name = "tim"
+version = "0.1.0"
+dependencies = [
+ "clap",
 ]
 
 [[package]]

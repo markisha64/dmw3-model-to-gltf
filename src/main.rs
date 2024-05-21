@@ -1,6 +1,4 @@
 mod pack;
-mod rlen;
-mod tim;
 
 use binread::{io::Cursor, BinRead};
 use clap::Parser;

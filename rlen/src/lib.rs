@@ -1,11 +1,4 @@
-use std::{fs, iter, path::PathBuf};
-
-use clap::Parser;
-
-#[derive(Parser, Debug, Clone)]
-struct Args {
-    file: PathBuf,
-}
+use std::iter;
 
 pub fn rlen_decode(bytes: &Vec<u8>) -> Result<Vec<u8>, String> {
     if bytes[0..4] != *b"RLEN" {
@@ -44,14 +37,4 @@ pub fn rlen_decode(bytes: &Vec<u8>) -> Result<Vec<u8>, String> {
     }
 
     Ok(result)
-}
-
-fn main() {
-    let args = Args::parse();
-
-    let file = fs::read(args.file).expect("IO error");
-
-    let unpacked = rlen_decode(&file).expect("RLEN error");
-
-    fs::write("new/rlen_decoded", unpacked).expect("IO error");
 }
