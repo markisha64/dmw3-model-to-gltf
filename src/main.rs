@@ -36,7 +36,7 @@ struct AnimationInst {
     d: i16,
 }
 
-#[derive(BinRead, Debug)]
+#[derive(BinRead, Debug, Clone)]
 struct AnimationFrame {
     vx: i16,
     vy: i16,
@@ -51,7 +51,7 @@ struct Part {
     vert_len: usize,
     tex_offset: usize,
     tex_len: usize,
-    animation: usize,
+    _animation: usize,
 }
 
 #[derive(BinRead)]
@@ -70,12 +70,19 @@ struct Vertex {
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
+struct Vec3 {
+    values: [f32; 3],
+}
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
 struct Texel {
     position: [f32; 2],
 }
 
 const TARGET: &str = "new";
 const MULTIPLIER: f32 = 1.0 / 256.0;
+const FPS: f32 = 15.0;
 
 type Point = (u32, u32);
 type PointFloat = (f64, f64);
@@ -169,55 +176,69 @@ fn color_tex_tris(
     }
 }
 
+fn grab_frames(animations: pack::Packed) -> Vec<Vec<i16>> {
+    animations
+        .files
+        .iter()
+        .map(|animation| -> Option<Vec<i16>> {
+            let mut reader = Cursor::new(&animation);
+
+            let mut instructions = Vec::new();
+
+            for _ in 0..animation.len() / 16 {
+                instructions.push(AnimationInst::read(&mut reader).unwrap());
+            }
+
+            if let Some(instruction) = instructions.iter().find(|x| x.d != 0 && x.len > 0) {
+                let mut frames = Vec::new();
+
+                for i in 0..instruction.len {
+                    frames.push(instruction.c + i);
+                }
+
+                return Some(frames);
+            }
+
+            None
+        })
+        .filter(|x| x.is_some())
+        .map(|x| x.unwrap())
+        .collect()
+}
+
 fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     let mut root = json::Root::default();
 
-    let animation_packed = pack::Packed::from(unpacked.files[0].clone());
+    let animations = grab_frames(pack::Packed::from(unpacked.files[0].clone()));
 
-    let mut animation_0_reader = Cursor::new(&animation_packed.files[0]);
+    let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
-    let mut instructions = Vec::new();
-
-    for _ in 0..animation_packed.files[0].len() / 16 {
-        instructions.push(AnimationInst::read(&mut animation_0_reader).unwrap());
-    }
-
-    let frame = instructions
-        .iter()
-        .find(|x| x.d != 0 && x.len > 0)
-        .unwrap()
-        .c;
-
-    let animations: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
-
-    let animation_files: Vec<Option<Vec<Vec<AnimationFrame>>>> = unpacked
+    let animation_files: Vec<Vec<Vec<AnimationFrame>>> = unpacked
         .files
         .iter()
         .enumerate()
         .map(|(idx, part)| {
-            if !animations.contains(&(idx as u32)) {
-                return None;
+            if !animation_idxs.contains(&(idx as u32)) {
+                return Vec::new();
             }
 
             let upkg = pack::Packed::from(part.clone());
 
-            Some(
-                upkg.files
-                    .iter()
-                    .take(2)
-                    .map(|buf| {
-                        let mut reader = Cursor::new(&buf);
+            upkg.files
+                .iter()
+                .take(2)
+                .map(|buf| {
+                    let mut reader = Cursor::new(&buf);
 
-                        let mut res = Vec::new();
+                    let mut res = Vec::new();
 
-                        for _ in 0..buf.len() / 16 {
-                            res.push(AnimationFrame::read(&mut reader).unwrap());
-                        }
+                    for _ in 0..buf.len() / 16 {
+                        res.push(AnimationFrame::read(&mut reader).unwrap());
+                    }
 
-                        res
-                    })
-                    .collect(),
-            )
+                    res
+                })
+                .collect()
         })
         .collect();
 
@@ -299,7 +320,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     // root
     parts.push(Part {
-        animation: 0,
+        _animation: 0,
         parent_index: None,
         vert_offset: 0,
         vert_len: 0,
@@ -514,7 +535,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         }
 
         parts.push(Part {
-            animation: part.animation as usize,
+            _animation: part.animation as usize,
             parent_index: Some(part.parent_index as usize),
             vert_offset: old_vertex_len,
             vert_len: vertices_ref.len() - old_vertex_len,
@@ -630,23 +651,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             false => None,
         };
 
-        let translation = match part.vert_len != 0 {
-            true => {
-                let anim_frame = animation_files[part.animation].as_ref().unwrap()[0]
-                    .iter()
-                    .find(|x| x.id >= frame)
-                    .or(animation_files[part.animation].as_ref().unwrap()[0].last())
-                    .unwrap();
-
-                Some([
-                    anim_frame.vx as f32 * MULTIPLIER,
-                    anim_frame.vy as f32 * MULTIPLIER,
-                    anim_frame.vz as f32 * MULTIPLIER,
-                ])
-            }
-            false => None,
-        };
-
         let node = root.push(json::Node {
             mesh,
             children: Some(
@@ -655,11 +659,162 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                     .map(|pc| Index::new(*pc as u32))
                     .collect(),
             ),
-            translation,
             ..Default::default()
         });
 
         nodes.push(node);
+    }
+
+    let mut animations_parsed: Vec<Vec<Vec<AnimationFrame>>> = Vec::new();
+
+    for anim in animations.iter() {
+        animations_parsed.push(
+            header
+                .parts
+                .iter()
+                .map(|x| -> Vec<AnimationFrame> {
+                    anim.iter()
+                        .map(|y| {
+                            animation_files[x.animation as usize][0]
+                                .iter()
+                                .find(|z| z.id >= *y)
+                                .or(animation_files[x.animation as usize][0].last())
+                                .unwrap()
+                                .clone()
+                        })
+                        .collect()
+                })
+                .collect(),
+        );
+    }
+
+    let mut animation_timestamps: Vec<f32> = Vec::new();
+    let mut animation_translations: Vec<Vec3> = Vec::new();
+
+    for animation in animations.iter() {
+        animation_timestamps.extend((0..animation.len()).map(|x| x as f32 * (1.0 / FPS)));
+    }
+
+    for animation in animations_parsed {
+        for part in animation {
+            animation_translations.extend(part.iter().map(|x| Vec3 {
+                values: [
+                    x.vx as f32 * MULTIPLIER,
+                    x.vy as f32 * MULTIPLIER,
+                    x.vz as f32 * MULTIPLIER,
+                ],
+            }))
+        }
+    }
+
+    let timestamp_buffer_length = animation_timestamps.len() * mem::size_of::<f32>();
+    let timestamp_buffer = root.push(json::Buffer {
+        byte_length: USize64::from(timestamp_buffer_length),
+        uri: Some("ts.bin".into()),
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let timestamp_buffer_view = root.push(json::buffer::View {
+        buffer: timestamp_buffer,
+        byte_length: USize64::from(timestamp_buffer_length),
+        byte_offset: None,
+        byte_stride: Some(json::buffer::Stride(mem::size_of::<f32>())),
+        extensions: Default::default(),
+        extras: Default::default(),
+        target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+    });
+
+    let translations_buffer_length = animation_translations.len() * mem::size_of::<Vec3>();
+    let translations_buffer = root.push(json::Buffer {
+        byte_length: USize64::from(translations_buffer_length),
+        uri: Some("trans.bin".into()),
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let translations_buffer_view = root.push(json::buffer::View {
+        buffer: translations_buffer,
+        byte_length: USize64::from(translations_buffer_length),
+        byte_offset: None,
+        byte_stride: Some(json::buffer::Stride(mem::size_of::<Vec3>())),
+        extensions: Default::default(),
+        extras: Default::default(),
+        target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+    });
+
+    let mut timestamp_iter = 0;
+    let mut translations_iter = 0;
+    for animation in animations.iter() {
+        let timestamp_accessor = root.push(json::Accessor {
+            buffer_view: Some(timestamp_buffer_view),
+            byte_offset: Some(USize64::from(timestamp_iter * mem::size_of::<f32>())),
+            count: USize64::from(animation.len()),
+            component_type: Valid(json::accessor::GenericComponentType(
+                json::accessor::ComponentType::F32,
+            )),
+            type_: Valid(json::accessor::Type::Scalar),
+            min: None,
+            max: None,
+            normalized: false,
+            sparse: None,
+            extensions: Default::default(),
+            extras: Default::default(),
+        });
+
+        let mut samplers = Vec::new();
+        let mut channels = Vec::new();
+        for i in 1..parts.len() {
+            let accessor = root.push(json::Accessor {
+                buffer_view: Some(translations_buffer_view),
+                byte_offset: Some(USize64::from(translations_iter * mem::size_of::<Vec3>())),
+                count: USize64::from(animation.len()),
+                component_type: Valid(json::accessor::GenericComponentType(
+                    json::accessor::ComponentType::F32,
+                )),
+                type_: Valid(json::accessor::Type::Vec3),
+                min: None,
+                max: None,
+                normalized: false,
+                sparse: None,
+                extensions: Default::default(),
+                extras: Default::default(),
+            });
+
+            let sampler = json::animation::Sampler {
+                input: timestamp_accessor,
+                interpolation: Valid(json::animation::Interpolation::Linear),
+                output: accessor,
+                extensions: Default::default(),
+                extras: Default::default(),
+            };
+
+            let channel = json::animation::Channel {
+                target: json::animation::Target {
+                    node: Index::new(i as u32),
+                    path: Valid(json::animation::Property::Translation),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                },
+                sampler: Index::new(i as u32 - 1),
+                extensions: Default::default(),
+                extras: Default::default(),
+            };
+
+            samplers.push(sampler);
+            channels.push(channel);
+
+            translations_iter += animation.len();
+        }
+
+        root.push(json::Animation {
+            channels,
+            samplers,
+            extensions: Default::default(),
+            extras: Default::default(),
+        });
+
+        timestamp_iter += animation.len();
     }
 
     let vertex_bin = to_padded_byte_vector(vertices);
@@ -671,6 +826,15 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     let mut tex_coords_writer =
         fs::File::create(format!("{TARGET}/{filename}/tex_buffer.bin")).unwrap();
     tex_coords_writer.write_all(&tex_coords_bin).unwrap();
+
+    let timestamps_bin = to_padded_byte_vector(animation_timestamps);
+    let mut timestamps_writer = fs::File::create(format!("{TARGET}/{filename}/ts.bin")).unwrap();
+    timestamps_writer.write_all(&timestamps_bin).unwrap();
+
+    let translations_bin = to_padded_byte_vector(animation_translations);
+    let mut translations_writer =
+        fs::File::create(format!("{TARGET}/{filename}/trans.bin")).unwrap();
+    translations_writer.write_all(&translations_bin).unwrap();
 
     texture_png
         .save(format!("{TARGET}/{filename}/texture.png"))
