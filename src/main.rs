@@ -44,6 +44,13 @@ struct AnimationFrame {
     id: i16,
 }
 
+#[derive(Debug, Clone)]
+struct AnimationFrames {
+    translation: AnimationFrame,
+    _rotation: AnimationFrame,
+    scale: AnimationFrame,
+}
+
 #[derive(Clone, Debug)]
 struct Part {
     parent_index: Option<usize>,
@@ -82,6 +89,7 @@ struct Texel {
 
 const TARGET: &str = "new";
 const MULTIPLIER: f32 = 1.0 / 256.0;
+const SCALE_MULTIPLIER: f32 = 1.0 / 4096.0;
 const FPS: f32 = 15.0;
 
 type Point = (u32, u32);
@@ -226,7 +234,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
             upkg.files
                 .iter()
-                .take(2)
+                .take(3)
                 .map(|buf| {
                     let mut reader = Cursor::new(&buf);
 
@@ -665,22 +673,42 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         nodes.push(node);
     }
 
-    let mut animations_parsed: Vec<Vec<Vec<AnimationFrame>>> = Vec::new();
+    let mut animations_parsed: Vec<Vec<Vec<AnimationFrames>>> = Vec::new();
 
     for anim in animations.iter() {
         animations_parsed.push(
             header
                 .parts
                 .iter()
-                .map(|x| -> Vec<AnimationFrame> {
+                .map(|x| -> Vec<AnimationFrames> {
                     anim.iter()
                         .map(|y| {
-                            animation_files[x.animation as usize][0]
+                            let translation = animation_files[x.animation as usize][0]
                                 .iter()
                                 .find(|z| z.id >= *y)
                                 .or(animation_files[x.animation as usize][0].last())
                                 .unwrap()
-                                .clone()
+                                .clone();
+
+                            let _rotation = animation_files[x.animation as usize][1]
+                                .iter()
+                                .find(|z| z.id >= *y)
+                                .or(animation_files[x.animation as usize][1].last())
+                                .unwrap()
+                                .clone();
+
+                            let scale = animation_files[x.animation as usize][2]
+                                .iter()
+                                .find(|z| z.id >= *y)
+                                .or(animation_files[x.animation as usize][2].last())
+                                .unwrap()
+                                .clone();
+
+                            AnimationFrames {
+                                translation,
+                                _rotation,
+                                scale,
+                            }
                         })
                         .collect()
                 })
@@ -690,6 +718,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let mut animation_timestamps: Vec<f32> = Vec::new();
     let mut animation_translations: Vec<Vec3> = Vec::new();
+    let mut animation_scale: Vec<Vec3> = Vec::new();
 
     for animation in animations.iter() {
         animation_timestamps.extend((0..animation.len()).map(|x| x as f32 * (1.0 / FPS)));
@@ -699,11 +728,19 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         for part in animation {
             animation_translations.extend(part.iter().map(|x| Vec3 {
                 values: [
-                    x.vx as f32 * MULTIPLIER,
-                    x.vy as f32 * MULTIPLIER,
-                    x.vz as f32 * MULTIPLIER,
+                    x.translation.vx as f32 * MULTIPLIER,
+                    x.translation.vy as f32 * MULTIPLIER,
+                    x.translation.vz as f32 * MULTIPLIER,
                 ],
-            }))
+            }));
+
+            animation_scale.extend(part.iter().map(|x| Vec3 {
+                values: [
+                    x.scale.vx as f32 * SCALE_MULTIPLIER,
+                    x.scale.vy as f32 * SCALE_MULTIPLIER,
+                    x.scale.vz as f32 * SCALE_MULTIPLIER,
+                ],
+            }));
         }
     }
 
@@ -743,8 +780,26 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
+    let scale_buffer_length = animation_scale.len() * mem::size_of::<Vec3>();
+    let scale_buffer = root.push(json::Buffer {
+        byte_length: USize64::from(scale_buffer_length),
+        uri: Some("scale.bin".into()),
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let scale_buffer_view = root.push(json::buffer::View {
+        buffer: scale_buffer,
+        byte_length: USize64::from(scale_buffer_length),
+        byte_offset: None,
+        byte_stride: Some(json::buffer::Stride(mem::size_of::<Vec3>())),
+        extensions: Default::default(),
+        extras: Default::default(),
+        target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+    });
+
     let mut timestamp_iter = 0;
-    let mut translations_iter = 0;
+    let mut part_iter = 0;
     for animation in animations.iter() {
         let timestamp_accessor = root.push(json::Accessor {
             buffer_view: Some(timestamp_buffer_view),
@@ -765,9 +820,9 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         let mut samplers = Vec::new();
         let mut channels = Vec::new();
         for i in 1..parts.len() {
-            let accessor = root.push(json::Accessor {
+            let translation_accessor = root.push(json::Accessor {
                 buffer_view: Some(translations_buffer_view),
-                byte_offset: Some(USize64::from(translations_iter * mem::size_of::<Vec3>())),
+                byte_offset: Some(USize64::from(part_iter * mem::size_of::<Vec3>())),
                 count: USize64::from(animation.len()),
                 component_type: Valid(json::accessor::GenericComponentType(
                     json::accessor::ComponentType::F32,
@@ -781,30 +836,68 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                 extras: Default::default(),
             });
 
-            let sampler = json::animation::Sampler {
+            let translation_sampler = json::animation::Sampler {
                 input: timestamp_accessor,
                 interpolation: Valid(json::animation::Interpolation::Linear),
-                output: accessor,
+                output: translation_accessor,
                 extensions: Default::default(),
                 extras: Default::default(),
             };
 
-            let channel = json::animation::Channel {
+            let scale_accessor = root.push(json::Accessor {
+                buffer_view: Some(scale_buffer_view),
+                byte_offset: Some(USize64::from(part_iter * mem::size_of::<Vec3>())),
+                count: USize64::from(animation.len()),
+                component_type: Valid(json::accessor::GenericComponentType(
+                    json::accessor::ComponentType::F32,
+                )),
+                type_: Valid(json::accessor::Type::Vec3),
+                min: None,
+                max: None,
+                normalized: false,
+                sparse: None,
+                extensions: Default::default(),
+                extras: Default::default(),
+            });
+
+            let scale_sampler = json::animation::Sampler {
+                input: timestamp_accessor,
+                interpolation: Valid(json::animation::Interpolation::Linear),
+                output: scale_accessor,
+                extensions: Default::default(),
+                extras: Default::default(),
+            };
+
+            let translation_channel = json::animation::Channel {
                 target: json::animation::Target {
                     node: Index::new(i as u32),
                     path: Valid(json::animation::Property::Translation),
                     extensions: Default::default(),
                     extras: Default::default(),
                 },
-                sampler: Index::new(i as u32 - 1),
+                sampler: Index::new((i as u32 - 1) * 2),
                 extensions: Default::default(),
                 extras: Default::default(),
             };
 
-            samplers.push(sampler);
-            channels.push(channel);
+            let scale_channel = json::animation::Channel {
+                target: json::animation::Target {
+                    node: Index::new(i as u32),
+                    path: Valid(json::animation::Property::Scale),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                },
+                sampler: Index::new((i as u32) * 2 - 1),
+                extensions: Default::default(),
+                extras: Default::default(),
+            };
 
-            translations_iter += animation.len();
+            samplers.push(translation_sampler);
+            samplers.push(scale_sampler);
+            channels.push(translation_channel);
+            channels.push(scale_channel);
+
+            part_iter += animation.len();
         }
 
         root.push(json::Animation {
@@ -835,6 +928,10 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     let mut translations_writer =
         fs::File::create(format!("{TARGET}/{filename}/trans.bin")).unwrap();
     translations_writer.write_all(&translations_bin).unwrap();
+
+    let scale_bin = to_padded_byte_vector(animation_scale);
+    let mut scale_writer = fs::File::create(format!("{TARGET}/{filename}/scale.bin")).unwrap();
+    scale_writer.write_all(&scale_bin).unwrap();
 
     texture_png
         .save(format!("{TARGET}/{filename}/texture.png"))
