@@ -40,8 +40,8 @@ struct AnimationInst {
 struct AnimationFrame {
     vx: i16,
     vy: i16,
-    id: i16,
     vz: i16,
+    id: i16,
 }
 
 #[derive(Clone, Debug)]
