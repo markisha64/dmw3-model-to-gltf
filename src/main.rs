@@ -4,7 +4,7 @@ use binread::{io::Cursor, BinRead};
 use clap::Parser;
 use gltf_json as json;
 use image::RgbaImage;
-use json::material::{EmissiveFactor, PbrMetallicRoughness, StrengthFactor};
+use json::material::{EmissiveFactor, PbrBaseColorFactor, PbrMetallicRoughness, StrengthFactor};
 use json::texture::Info;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
@@ -296,7 +296,9 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             extensions: Default::default(),
             extras: Default::default(),
         }),
-        base_color_factor: None,
+        base_color_factor: PbrBaseColorFactor {
+            0: [1.0, 1.0, 1.0, 1.0],
+        },
         metallic_factor: StrengthFactor(0.0),
         metallic_roughness_texture: None,
         roughness_factor: StrengthFactor(0.0),
