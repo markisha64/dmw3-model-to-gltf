@@ -228,7 +228,9 @@ fn grab_frames(animations: pack::Packed) -> Vec<Vec<u16>> {
 
                 if instruction.d == 0 {
                     for i in 1..instruction.len {
-                        frames.push(((i * 4096) / (instruction.len + 1)) | 0x8000);
+                        frames.push(
+                            (((i as u32 * 4096) / (instruction.len as u32 + 1)) | 0x8000) as u16,
+                        );
                     }
                 } else {
                     for i in 0..instruction.len {
