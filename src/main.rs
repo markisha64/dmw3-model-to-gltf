@@ -30,8 +30,8 @@ struct PartPacked {
 
 #[derive(BinRead)]
 struct AnimationInst {
-    _t: i16,
-    len: i16,
+    t: u16,
+    len: u16,
     c: i16,
     d: i16,
 }
@@ -41,7 +41,7 @@ struct AnimationFrame {
     vx: i16,
     vy: i16,
     vz: i16,
-    id: i16,
+    id: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +107,7 @@ struct Texel {
 const TARGET: &str = "new";
 const MULTIPLIER: f32 = 1.0 / 256.0;
 const SCALE_MULTIPLIER: f32 = 1.0 / 4096.0;
-const FPS: f32 = 15.0;
+const FPS: f32 = 60.0;
 const ROTATION: f32 = 1.0 / 1024.0;
 
 type Point = (u32, u32);
@@ -202,33 +202,43 @@ fn color_tex_tris(
     }
 }
 
-fn grab_frames(animations: pack::Packed) -> Vec<Vec<i16>> {
+fn grab_frames(animations: pack::Packed) -> Vec<Vec<u16>> {
     animations
         .files
         .iter()
-        .map(|animation| -> Option<Vec<i16>> {
+        .map(|animation| -> Vec<u16> {
             let mut reader = Cursor::new(&animation);
 
-            let mut instructions = Vec::new();
+            let instructions: Vec<AnimationInst> = (0..animation.len() / 16)
+                .map(|_| AnimationInst::read(&mut reader).unwrap())
+                .collect();
 
-            for _ in 0..animation.len() / 16 {
-                instructions.push(AnimationInst::read(&mut reader).unwrap());
-            }
+            let mut frames = Vec::new();
 
-            if let Some(instruction) = instructions.iter().find(|x| x.d != 0 && x.len > 0) {
-                let mut frames = Vec::new();
-
-                for i in 0..instruction.len {
-                    frames.push(instruction.c + i);
+            for instruction in instructions {
+                if instruction.t == 0x7fff {
+                    break;
                 }
 
-                return Some(frames);
+                if instruction.len == 0 {
+                    frames.push(instruction.c as u16);
+
+                    break;
+                }
+
+                if instruction.d == 0 {
+                    for i in 1..instruction.len {
+                        frames.push(((i * 4096) / (instruction.len + 1)) | 0x8000);
+                    }
+                } else {
+                    for i in 0..instruction.len {
+                        frames.push(instruction.c as u16 + i);
+                    }
+                }
             }
 
-            None
+            frames
         })
-        .filter(|x| x.is_some())
-        .map(|x| x.unwrap())
         .collect()
 }
 
@@ -860,9 +870,13 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     let mut animation_rotation: Vec<Vec4> = Vec::new();
     let mut animation_scale: Vec<Vec3> = Vec::new();
 
-    for animation in animations.iter() {
-        animation_timestamps.extend((0..animation.len()).map(|x| x as f32 * (1.0 / FPS)));
-    }
+    let longest_animation = animations
+        .iter()
+        .max_by(|x, y| x.len().cmp(&y.len()))
+        .unwrap()
+        .len();
+
+    animation_timestamps.extend((0..longest_animation).map(|x| x as f32 * (1.0 / FPS)));
 
     for animation in animations_parsed {
         for part in animation {
@@ -958,12 +972,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
-    let mut timestamp_iter = 0;
     let mut part_iter = 0;
     for animation in animations.iter() {
         let timestamp_accessor = root.push(json::Accessor {
             buffer_view: Some(timestamp_buffer_view),
-            byte_offset: Some(USize64::from(timestamp_iter * mem::size_of::<f32>())),
+            byte_offset: Some(USize64(0)),
             count: USize64::from(animation.len()),
             component_type: Valid(json::accessor::GenericComponentType(
                 json::accessor::ComponentType::F32,
@@ -1104,8 +1117,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
             extensions: Default::default(),
             extras: Default::default(),
         });
-
-        timestamp_iter += animation.len();
     }
 
     let vertex_bin = to_padded_byte_vector(vertices);
