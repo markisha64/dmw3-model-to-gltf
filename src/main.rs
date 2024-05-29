@@ -173,7 +173,7 @@ fn clut_idx_to_rgb(clut: &[u8], idx: usize) -> image::Rgba<u8> {
     let g = (raw >> 5) & 0x1f;
     let b = (raw >> 10) & 0x1f;
 
-    if (r == 0 && g == 0 && b == 0) || stp {
+    if (r == 0 && g == 0 && b == 0) != stp {
         return image::Rgba([0, 0, 0, 0]);
     }
 
