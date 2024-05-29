@@ -167,9 +167,15 @@ fn clut_idx_to_rgb(clut: &[u8], idx: usize) -> image::Rgba<u8> {
 
     let raw = u16::from_le_bytes([clut[normalized], clut[normalized + 1]]);
 
+    let stp = (raw >> 15) > 0;
+
     let r = raw & 0x1f;
     let g = (raw >> 5) & 0x1f;
     let b = (raw >> 10) & 0x1f;
+
+    if (r == 0 && g == 0 && b == 0) || stp {
+        return image::Rgba([0, 0, 0, 0]);
+    }
 
     let r_norm = ((r * 255) / 0x1f) as u8;
     let g_norm = ((g * 255) / 0x1f) as u8;
@@ -349,7 +355,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let material = root.push(json::Material {
         alpha_cutoff: None,
-        alpha_mode: Valid(json::material::AlphaMode::Opaque),
+        alpha_mode: Valid(json::material::AlphaMode::Mask),
         double_sided: true,
         pbr_metallic_roughness: pbr,
         extensions: Default::default(),
