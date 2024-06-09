@@ -449,13 +449,42 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
         let mut clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
 
-        let mut is_quad = 1;
-        let mut is_textured = 1;
+        let mut is_quad = 0;
+        let mut is_sparse = 0;
         // let mut s3 = 0;
         // let mut s4 = 0;
-        let mut has_normals = 1;
+        let mut is_raw = 0;
         // let mut s6 = 0;
         // let mut s7 = 0;
+        let mut face = [
+            Vertex {
+                position: [0.0, 0.0, 0.0],
+            },
+            Vertex {
+                position: [0.0, 0.0, 0.0],
+            },
+            Vertex {
+                position: [0.0, 0.0, 0.0],
+            },
+            Vertex {
+                position: [0.0, 0.0, 0.0],
+            },
+        ];
+
+        let mut face_tex = [
+            Texel {
+                position: [0.0, 0.0],
+            },
+            Texel {
+                position: [0.0, 0.0],
+            },
+            Texel {
+                position: [0.0, 0.0],
+            },
+            Texel {
+                position: [0.0, 0.0],
+            },
+        ];
 
         let mut i = 0;
 
@@ -475,127 +504,202 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                         clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
 
                         i += 7;
-                    } else if t < 2 {
-                        let offset = match has_normals {
-                            0 => is_quad + 4 + i,
-                            _ => is_quad * 2 + 7 + i,
-                        };
+                    } else if t == 0 {
+                        if is_raw > 0 {}
+
+                        if is_sparse > 0 {
+                            let offset = match is_raw {
+                                0 => is_quad + 4 + i,
+                                _ => is_quad * 2 + 7 + i,
+                            };
+
+                            if is_quad > 0 {
+                                face = [
+                                    vertices_sparse[face_file[i + 1] as usize],
+                                    vertices_sparse[face_file[i + 2] as usize],
+                                    vertices_sparse[face_file[i + 3] as usize],
+                                    vertices_sparse[face_file[i + 4] as usize],
+                                ];
+
+                                let tex1 = (
+                                    (face_file[offset] as u32 + tex_origin_1) % 256,
+                                    (face_file[offset + 1] as u32 + tex_origin_2) % 256,
+                                );
+                                let tex2 = (
+                                    (face_file[offset + 2] as u32 + tex_origin_1) % 256,
+                                    (face_file[offset + 3] as u32 + tex_origin_2) % 256,
+                                );
+                                let tex3 = (
+                                    (face_file[offset + 4] as u32 + tex_origin_1) % 256,
+                                    (face_file[offset + 5] as u32 + tex_origin_2) % 256,
+                                );
+                                let tex4 = (
+                                    (face_file[offset + 6] as u32 + tex_origin_1) % 256,
+                                    (face_file[offset + 7] as u32 + tex_origin_2) % 256,
+                                );
+
+                                face_tex = [
+                                    Texel {
+                                        position: [
+                                            (tex1.0 as f32) / 256.0,
+                                            (tex1.1 as f32) / 256.0,
+                                        ],
+                                    },
+                                    Texel {
+                                        position: [
+                                            (tex2.0 as f32) / 256.0,
+                                            (tex2.1 as f32) / 256.0,
+                                        ],
+                                    },
+                                    Texel {
+                                        position: [
+                                            (tex3.0 as f32) / 256.0,
+                                            (tex3.1 as f32) / 256.0,
+                                        ],
+                                    },
+                                    Texel {
+                                        position: [
+                                            (tex4.0 as f32) / 256.0,
+                                            (tex4.1 as f32) / 256.0,
+                                        ],
+                                    },
+                                ];
+                            } else {
+                                face = [
+                                    vertices_sparse[face_file[i + 1] as usize],
+                                    vertices_sparse[face_file[i + 2] as usize],
+                                    vertices_sparse[face_file[i + 3] as usize],
+                                    Vertex {
+                                        position: [0.0, 0.0, 0.0],
+                                    },
+                                ];
+
+                                let tex1 = (
+                                    (face_file[offset] as u32 + tex_origin_1) % 256,
+                                    (face_file[offset + 1] as u32 + tex_origin_2) % 256,
+                                );
+                                let tex2 = (
+                                    (face_file[offset + 2] as u32 + tex_origin_1) % 256,
+                                    (face_file[offset + 3] as u32 + tex_origin_2) % 256,
+                                );
+                                let tex3 = (
+                                    (face_file[offset + 4] as u32 + tex_origin_1) % 256,
+                                    (face_file[offset + 5] as u32 + tex_origin_2) % 256,
+                                );
+
+                                face_tex = [
+                                    Texel {
+                                        position: [
+                                            (tex1.0 as f32) / 256.0,
+                                            (tex1.1 as f32) / 256.0,
+                                        ],
+                                    },
+                                    Texel {
+                                        position: [
+                                            (tex2.0 as f32) / 256.0,
+                                            (tex2.1 as f32) / 256.0,
+                                        ],
+                                    },
+                                    Texel {
+                                        position: [
+                                            (tex3.0 as f32) / 256.0,
+                                            (tex3.1 as f32) / 256.0,
+                                        ],
+                                    },
+                                    Texel {
+                                        position: [0.0, 0.0],
+                                    },
+                                ];
+                            }
+                        }
 
                         if is_quad > 0 {
-                            vertices_ref.push(vertices_sparse[face_file[i + 1] as usize]);
-                            vertices_ref.push(vertices_sparse[face_file[i + 2] as usize]);
-                            vertices_ref.push(vertices_sparse[face_file[i + 3] as usize]);
+                            vertices_ref.push(face[0]);
+                            vertices_ref.push(face[1]);
+                            vertices_ref.push(face[2]);
 
-                            vertices_ref.push(vertices_sparse[face_file[i + 2] as usize]);
-                            vertices_ref.push(vertices_sparse[face_file[i + 3] as usize]);
-                            vertices_ref.push(vertices_sparse[face_file[i + 4] as usize]);
+                            vertices_ref.push(face[1]);
+                            vertices_ref.push(face[2]);
+                            vertices_ref.push(face[3]);
 
-                            let tex1 = (
-                                (face_file[offset] as u32 + tex_origin_1) % 256,
-                                (face_file[offset + 1] as u32 + tex_origin_2) % 256,
-                            );
-                            let tex2 = (
-                                (face_file[offset + 2] as u32 + tex_origin_1) % 256,
-                                (face_file[offset + 3] as u32 + tex_origin_2) % 256,
-                            );
-                            let tex3 = (
-                                (face_file[offset + 4] as u32 + tex_origin_1) % 256,
-                                (face_file[offset + 5] as u32 + tex_origin_2) % 256,
-                            );
-                            let tex4 = (
-                                (face_file[offset + 6] as u32 + tex_origin_1) % 256,
-                                (face_file[offset + 7] as u32 + tex_origin_2) % 256,
-                            );
+                            tex_coords_ref.push(face_tex[0]);
+                            tex_coords_ref.push(face_tex[1]);
+                            tex_coords_ref.push(face_tex[2]);
 
-                            tex_coords_ref.push(Texel {
-                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
-                            });
-                            tex_coords_ref.push(Texel {
-                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
-                            });
-                            tex_coords_ref.push(Texel {
-                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
-                            });
-
-                            tex_coords_ref.push(Texel {
-                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
-                            });
-                            tex_coords_ref.push(Texel {
-                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
-                            });
-                            tex_coords_ref.push(Texel {
-                                position: [(tex4.0 as f32) / 256.0, (tex4.1 as f32) / 256.0],
-                            });
-
-                            let tex1f = (tex1.0 as f64, tex1.1 as f64);
-                            let tex2f = (tex2.0 as f64, tex2.1 as f64);
-                            let tex3f = (tex3.0 as f64, tex3.1 as f64);
-                            let tex4f = (tex4.0 as f64, tex4.1 as f64);
+                            tex_coords_ref.push(face_tex[1]);
+                            tex_coords_ref.push(face_tex[2]);
+                            tex_coords_ref.push(face_tex[3]);
 
                             color_tex_tris(
                                 &mut texture_png,
                                 &texture_tim,
                                 clut,
-                                tex1f,
-                                tex2f,
-                                tex3f,
+                                (
+                                    (face_tex[0].position[0] * 256.0) as f64,
+                                    (face_tex[0].position[1] * 256.0) as f64,
+                                ),
+                                (
+                                    (face_tex[1].position[0] * 256.0) as f64,
+                                    (face_tex[1].position[1] * 256.0) as f64,
+                                ),
+                                (
+                                    (face_tex[2].position[0] * 256.0) as f64,
+                                    (face_tex[2].position[1] * 256.0) as f64,
+                                ),
                             );
+
                             color_tex_tris(
                                 &mut texture_png,
                                 &texture_tim,
                                 clut,
-                                tex2f,
-                                tex3f,
-                                tex4f,
+                                (
+                                    (face_tex[1].position[0] * 256.0) as f64,
+                                    (face_tex[1].position[1] * 256.0) as f64,
+                                ),
+                                (
+                                    (face_tex[2].position[0] * 256.0) as f64,
+                                    (face_tex[2].position[1] * 256.0) as f64,
+                                ),
+                                (
+                                    (face_tex[3].position[0] * 256.0) as f64,
+                                    (face_tex[3].position[1] * 256.0) as f64,
+                                ),
                             );
                         } else {
-                            vertices_ref.push(vertices_sparse[face_file[i + 1] as usize]);
-                            vertices_ref.push(vertices_sparse[face_file[i + 2] as usize]);
-                            vertices_ref.push(vertices_sparse[face_file[i + 3] as usize]);
+                            vertices_ref.push(face[0]);
+                            vertices_ref.push(face[1]);
+                            vertices_ref.push(face[2]);
 
-                            let tex1 = (
-                                (face_file[offset] as u32 + tex_origin_1) % 256,
-                                (face_file[offset + 1] as u32 + tex_origin_2) % 256,
-                            );
-                            let tex2 = (
-                                (face_file[offset + 2] as u32 + tex_origin_1) % 256,
-                                (face_file[offset + 3] as u32 + tex_origin_2) % 256,
-                            );
-                            let tex3 = (
-                                (face_file[offset + 4] as u32 + tex_origin_1) % 256,
-                                (face_file[offset + 5] as u32 + tex_origin_2) % 256,
-                            );
-                            tex_coords_ref.push(Texel {
-                                position: [(tex1.0 as f32) / 256.0, (tex1.1 as f32) / 256.0],
-                            });
-                            tex_coords_ref.push(Texel {
-                                position: [(tex2.0 as f32) / 256.0, (tex2.1 as f32) / 256.0],
-                            });
-                            tex_coords_ref.push(Texel {
-                                position: [(tex3.0 as f32) / 256.0, (tex3.1 as f32) / 256.0],
-                            });
-
-                            let tex1f = (tex1.0 as f64, tex1.1 as f64);
-                            let tex2f = (tex2.0 as f64, tex2.1 as f64);
-                            let tex3f = (tex3.0 as f64, tex3.1 as f64);
+                            tex_coords_ref.push(face_tex[0]);
+                            tex_coords_ref.push(face_tex[1]);
+                            tex_coords_ref.push(face_tex[2]);
 
                             color_tex_tris(
                                 &mut texture_png,
                                 &texture_tim,
                                 clut,
-                                tex1f,
-                                tex2f,
-                                tex3f,
+                                (
+                                    (face_tex[0].position[0] * 256.0) as f64,
+                                    (face_tex[0].position[1] * 256.0) as f64,
+                                ),
+                                (
+                                    (face_tex[1].position[0] * 256.0) as f64,
+                                    (face_tex[1].position[1] * 256.0) as f64,
+                                ),
+                                (
+                                    (face_tex[2].position[0] * 256.0) as f64,
+                                    (face_tex[2].position[1] * 256.0) as f64,
+                                ),
                             );
                         }
 
                         let mut face_length_in_bytes = is_quad + 3;
 
-                        if is_textured != 0 {
+                        if is_sparse != 0 {
                             face_length_in_bytes *= 2;
                         }
 
-                        if has_normals != 0 {
+                        if is_raw != 0 {
                             face_length_in_bytes *= 2;
                         }
 
@@ -607,8 +711,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                 _ => {
                     match ctype {
                         8 => is_quad = t,
-                        9 => is_textured = t,
-                        0xc => has_normals = t,
+                        9 => is_sparse = t,
+                        0xc => is_raw = t,
                         _ => {}
                     }
 
