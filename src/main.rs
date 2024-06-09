@@ -18,7 +18,6 @@ use tim::Tim;
 #[derive(Parser, Debug, Clone)]
 struct Args {
     file: PathBuf,
-    header_index: usize,
 }
 
 #[derive(BinRead)]
@@ -1177,6 +1176,21 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     json::serialize::to_writer_pretty(writer, &root).unwrap();
 }
 
+fn find_header<'a>(file: &'a pack::Packed) -> &'a Vec<u8> {
+    file.files
+        .iter()
+        .find(|x| {
+            if x.len() < 8 {
+                return false;
+            }
+
+            let len = u32::from_le_bytes([x[4], x[5], x[6], x[7]]) as u64;
+
+            (8 + len * 12) == x.len() as u64
+        })
+        .unwrap()
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -1184,7 +1198,7 @@ fn main() {
 
     let unpacked = pack::Packed::from(file);
 
-    let header_raw = &unpacked.files[args.header_index];
+    let header_raw = find_header(&unpacked);
 
     let mut header_reader = Cursor::new(&header_raw);
 
