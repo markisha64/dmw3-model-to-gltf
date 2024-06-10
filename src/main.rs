@@ -453,7 +453,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         let mut has_textures = 0;
         // let mut s3 = 0;
         // let mut s4 = 0;
-        let mut has_colors = 0;
+        let mut has_normals = 0;
         // let mut s6 = 0;
         // let mut s7 = 0;
         let mut face = [
@@ -500,10 +500,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                             face[2] = vertices_sparse[face_file[i + 3] as usize];
                         }
 
-                        if has_colors > 0 {}
-
                         if has_textures > 0 {
-                            let offset = match has_colors {
+                            let offset = match has_normals {
                                 0 => is_quad + 4 + i,
                                 _ => is_quad * 2 + 7 + i,
                             };
@@ -648,7 +646,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                         let j = i;
                         i = j + face_length_in_bytes;
 
-                        if has_colors != 0 {
+                        if has_normals != 0 {
                             i = j + face_length_in_bytes * 2;
                         }
 
@@ -665,7 +663,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                     match ctype {
                         8 => is_quad = t,
                         9 => has_textures = t,
-                        0xc => has_colors = t,
+                        0xc => has_normals = t,
                         _ => {}
                     }
 
