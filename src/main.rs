@@ -166,19 +166,19 @@ fn clut_idx_to_rgb(clut: &[u8], idx: usize) -> image::Rgba<u8> {
 
     let raw = u16::from_le_bytes([clut[normalized], clut[normalized + 1]]);
 
-    let stp = (raw >> 15) > 0;
+    let _stp = (raw >> 15) > 0;
 
     let r = raw & 0x1f;
     let g = (raw >> 5) & 0x1f;
     let b = (raw >> 10) & 0x1f;
 
-    if (r == 0 && g == 0 && b == 0) != stp {
-        return image::Rgba([0, 0, 0, 0]);
-    }
-
     let r_norm = ((r * 255) / 0x1f) as u8;
     let g_norm = ((g * 255) / 0x1f) as u8;
     let b_norm = ((b * 255) / 0x1f) as u8;
+
+    if r == 0 && g == 0 && b == 0 {
+        return image::Rgba([r_norm, g_norm, b_norm, 0]);
+    }
 
     image::Rgba([r_norm, g_norm, b_norm, 255])
 }
