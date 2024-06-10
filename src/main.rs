@@ -70,7 +70,7 @@ struct Header {
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 struct Vertex {
-    position: [f32; 3],
+    v: [f32; 3],
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -100,7 +100,7 @@ struct Mat4 {
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 struct Texel {
-    position: [f32; 2],
+    v: [f32; 2],
 }
 
 const TARGET: &str = "new";
@@ -429,7 +429,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                 let z: f32 = i16::from_le_bytes([chunk[4], chunk[5]]).into();
 
                 return Vertex {
-                    position: [x * MULTIPLIER, y * MULTIPLIER, z * MULTIPLIER],
+                    v: [x * MULTIPLIER, y * MULTIPLIER, z * MULTIPLIER],
                 };
             })
             .collect();
@@ -450,40 +450,24 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
         let mut clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
 
         let mut is_quad = 0;
-        let mut is_sparse = 0;
+        let mut has_textures = 0;
         // let mut s3 = 0;
         // let mut s4 = 0;
-        let mut is_raw = 0;
+        let mut has_colors = 0;
         // let mut s6 = 0;
         // let mut s7 = 0;
         let mut face = [
-            Vertex {
-                position: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 0.0],
-            },
-            Vertex {
-                position: [0.0, 0.0, 0.0],
-            },
+            Vertex { v: [0.0, 0.0, 0.0] },
+            Vertex { v: [0.0, 0.0, 0.0] },
+            Vertex { v: [0.0, 0.0, 0.0] },
+            Vertex { v: [0.0, 0.0, 0.0] },
         ];
 
         let mut face_tex = [
-            Texel {
-                position: [0.0, 0.0],
-            },
-            Texel {
-                position: [0.0, 0.0],
-            },
-            Texel {
-                position: [0.0, 0.0],
-            },
-            Texel {
-                position: [0.0, 0.0],
-            },
+            Texel { v: [0.0, 0.0] },
+            Texel { v: [0.0, 0.0] },
+            Texel { v: [0.0, 0.0] },
+            Texel { v: [0.0, 0.0] },
         ];
 
         let mut i = 0;
@@ -505,22 +489,26 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
                         i += 7;
                     } else if t == 0 {
-                        if is_raw > 0 {}
+                        if is_quad > 0 {
+                            face[0] = vertices_sparse[face_file[i + 1] as usize];
+                            face[1] = vertices_sparse[face_file[i + 2] as usize];
+                            face[2] = vertices_sparse[face_file[i + 3] as usize];
+                            face[3] = vertices_sparse[face_file[i + 4] as usize];
+                        } else {
+                            face[0] = vertices_sparse[face_file[i + 1] as usize];
+                            face[1] = vertices_sparse[face_file[i + 2] as usize];
+                            face[2] = vertices_sparse[face_file[i + 3] as usize];
+                        }
 
-                        if is_sparse > 0 {
-                            let offset = match is_raw {
+                        if has_colors > 0 {}
+
+                        if has_textures > 0 {
+                            let offset = match has_colors {
                                 0 => is_quad + 4 + i,
                                 _ => is_quad * 2 + 7 + i,
                             };
 
                             if is_quad > 0 {
-                                face = [
-                                    vertices_sparse[face_file[i + 1] as usize],
-                                    vertices_sparse[face_file[i + 2] as usize],
-                                    vertices_sparse[face_file[i + 3] as usize],
-                                    vertices_sparse[face_file[i + 4] as usize],
-                                ];
-
                                 let tex1 = (
                                     (face_file[offset] as u32 + tex_origin_1) % 256,
                                     (face_file[offset + 1] as u32 + tex_origin_2) % 256,
@@ -538,42 +526,19 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                     (face_file[offset + 7] as u32 + tex_origin_2) % 256,
                                 );
 
-                                face_tex = [
-                                    Texel {
-                                        position: [
-                                            (tex1.0 as f32) / 256.0,
-                                            (tex1.1 as f32) / 256.0,
-                                        ],
-                                    },
-                                    Texel {
-                                        position: [
-                                            (tex2.0 as f32) / 256.0,
-                                            (tex2.1 as f32) / 256.0,
-                                        ],
-                                    },
-                                    Texel {
-                                        position: [
-                                            (tex3.0 as f32) / 256.0,
-                                            (tex3.1 as f32) / 256.0,
-                                        ],
-                                    },
-                                    Texel {
-                                        position: [
-                                            (tex4.0 as f32) / 256.0,
-                                            (tex4.1 as f32) / 256.0,
-                                        ],
-                                    },
-                                ];
+                                face_tex[0] = Texel {
+                                    v: [(tex1.0 as f32) / 255.0, (tex1.1 as f32) / 255.0],
+                                };
+                                face_tex[1] = Texel {
+                                    v: [(tex2.0 as f32) / 255.0, (tex2.1 as f32) / 255.0],
+                                };
+                                face_tex[2] = Texel {
+                                    v: [(tex3.0 as f32) / 255.0, (tex3.1 as f32) / 255.0],
+                                };
+                                face_tex[3] = Texel {
+                                    v: [(tex4.0 as f32) / 255.0, (tex4.1 as f32) / 255.0],
+                                };
                             } else {
-                                face = [
-                                    vertices_sparse[face_file[i + 1] as usize],
-                                    vertices_sparse[face_file[i + 2] as usize],
-                                    vertices_sparse[face_file[i + 3] as usize],
-                                    Vertex {
-                                        position: [0.0, 0.0, 0.0],
-                                    },
-                                ];
-
                                 let tex1 = (
                                     (face_file[offset] as u32 + tex_origin_1) % 256,
                                     (face_file[offset + 1] as u32 + tex_origin_2) % 256,
@@ -587,29 +552,15 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                     (face_file[offset + 5] as u32 + tex_origin_2) % 256,
                                 );
 
-                                face_tex = [
-                                    Texel {
-                                        position: [
-                                            (tex1.0 as f32) / 256.0,
-                                            (tex1.1 as f32) / 256.0,
-                                        ],
-                                    },
-                                    Texel {
-                                        position: [
-                                            (tex2.0 as f32) / 256.0,
-                                            (tex2.1 as f32) / 256.0,
-                                        ],
-                                    },
-                                    Texel {
-                                        position: [
-                                            (tex3.0 as f32) / 256.0,
-                                            (tex3.1 as f32) / 256.0,
-                                        ],
-                                    },
-                                    Texel {
-                                        position: [0.0, 0.0],
-                                    },
-                                ];
+                                face_tex[0] = Texel {
+                                    v: [(tex1.0 as f32) / 255.0, (tex1.1 as f32) / 255.0],
+                                };
+                                face_tex[1] = Texel {
+                                    v: [(tex2.0 as f32) / 255.0, (tex2.1 as f32) / 255.0],
+                                };
+                                face_tex[2] = Texel {
+                                    v: [(tex3.0 as f32) / 255.0, (tex3.1 as f32) / 255.0],
+                                };
                             }
                         }
 
@@ -635,16 +586,16 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 &texture_tim,
                                 clut,
                                 (
-                                    (face_tex[0].position[0] * 256.0) as f64,
-                                    (face_tex[0].position[1] * 256.0) as f64,
+                                    (face_tex[0].v[0] * 255.0) as f64,
+                                    (face_tex[0].v[1] * 255.0) as f64,
                                 ),
                                 (
-                                    (face_tex[1].position[0] * 256.0) as f64,
-                                    (face_tex[1].position[1] * 256.0) as f64,
+                                    (face_tex[1].v[0] * 255.0) as f64,
+                                    (face_tex[1].v[1] * 255.0) as f64,
                                 ),
                                 (
-                                    (face_tex[2].position[0] * 256.0) as f64,
-                                    (face_tex[2].position[1] * 256.0) as f64,
+                                    (face_tex[2].v[0] * 255.0) as f64,
+                                    (face_tex[2].v[1] * 255.0) as f64,
                                 ),
                             );
 
@@ -653,16 +604,16 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 &texture_tim,
                                 clut,
                                 (
-                                    (face_tex[1].position[0] * 256.0) as f64,
-                                    (face_tex[1].position[1] * 256.0) as f64,
+                                    (face_tex[1].v[0] * 255.0) as f64,
+                                    (face_tex[1].v[1] * 255.0) as f64,
                                 ),
                                 (
-                                    (face_tex[2].position[0] * 256.0) as f64,
-                                    (face_tex[2].position[1] * 256.0) as f64,
+                                    (face_tex[2].v[0] * 255.0) as f64,
+                                    (face_tex[2].v[1] * 255.0) as f64,
                                 ),
                                 (
-                                    (face_tex[3].position[0] * 256.0) as f64,
-                                    (face_tex[3].position[1] * 256.0) as f64,
+                                    (face_tex[3].v[0] * 255.0) as f64,
+                                    (face_tex[3].v[1] * 255.0) as f64,
                                 ),
                             );
                         } else {
@@ -679,16 +630,16 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                                 &texture_tim,
                                 clut,
                                 (
-                                    (face_tex[0].position[0] * 256.0) as f64,
-                                    (face_tex[0].position[1] * 256.0) as f64,
+                                    (face_tex[0].v[0] * 255.0) as f64,
+                                    (face_tex[0].v[1] * 255.0) as f64,
                                 ),
                                 (
-                                    (face_tex[1].position[0] * 256.0) as f64,
-                                    (face_tex[1].position[1] * 256.0) as f64,
+                                    (face_tex[1].v[0] * 255.0) as f64,
+                                    (face_tex[1].v[1] * 255.0) as f64,
                                 ),
                                 (
-                                    (face_tex[2].position[0] * 256.0) as f64,
-                                    (face_tex[2].position[1] * 256.0) as f64,
+                                    (face_tex[2].v[0] * 255.0) as f64,
+                                    (face_tex[2].v[1] * 255.0) as f64,
                                 ),
                             );
                         }
@@ -697,11 +648,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                         let j = i;
                         i = j + face_length_in_bytes;
 
-                        if is_raw != 0 {
+                        if has_colors != 0 {
                             i = j + face_length_in_bytes * 2;
                         }
 
-                        if is_sparse != 0 {
+                        if has_textures != 0 {
                             i = i + face_length_in_bytes * 2;
                         }
 
@@ -713,8 +664,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                 _ => {
                     match ctype {
                         8 => is_quad = t,
-                        9 => is_sparse = t,
-                        0xc => is_raw = t,
+                        9 => has_textures = t,
+                        0xc => has_colors = t,
                         _ => {}
                     }
 
