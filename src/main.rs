@@ -693,17 +693,19 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
                             );
                         }
 
-                        let mut face_length_in_bytes = is_quad + 3;
-
-                        if is_sparse != 0 {
-                            face_length_in_bytes *= 2;
-                        }
+                        let face_length_in_bytes = is_quad + 3;
+                        let j = i;
+                        i = j + face_length_in_bytes;
 
                         if is_raw != 0 {
-                            face_length_in_bytes *= 2;
+                            i = j + face_length_in_bytes * 2;
                         }
 
-                        i += face_length_in_bytes + 1;
+                        if is_sparse != 0 {
+                            i = i + face_length_in_bytes * 2;
+                        }
+
+                        i += 1;
                     } else if t < 6 {
                         i += 4;
                     }
