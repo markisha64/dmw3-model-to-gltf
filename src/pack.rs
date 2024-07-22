@@ -28,13 +28,34 @@ impl From<Vec<u8>> for Packed {
         for _ in 1..length {
             let offset = u32::read(&mut reader).unwrap();
 
-            if offset > 0 {
-                offsets.push(offset);
-            }
+            offsets.push(offset);
         }
 
         for i in 0..offsets.len() - 1 {
+            if offsets[i] == 0 {
+                files.push(Vec::new());
+
+                continue;
+            }
+
+            if offsets[i + 1] == 0 {
+                let non_zero = offsets[i + 1..].iter().find(|x| **x != 0);
+
+                match non_zero {
+                    Some(offset) => {
+                        files.push(file[offsets[i] as usize..*offset as usize].into());
+                    }
+                    None => {
+                        files.push(file[offsets[i] as usize..].into());
+                    }
+                }
+
+                continue;
+            }
+
             if offsets[i] > offsets[i + 1] {
+                files.push(Vec::new());
+
                 continue;
             }
 
