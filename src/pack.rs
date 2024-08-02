@@ -1,86 +1,55 @@
 use binread::BinRead;
-use binwrite::BinWrite;
 use std::io::Cursor;
 
 #[derive(Clone)]
 pub struct Packed {
-    pub files: Vec<Vec<u8>>,
+    pub buffer: Vec<u8>,
+    pub assumed_length: Vec<usize>,
+    pub offsets: Vec<usize>,
 }
 
 impl Packed {
     pub fn _file_size(&self) -> usize {
-        let header_length = self.files.len() * 4;
-        let files_length = self.files.iter().fold(0, |pv, cv| pv + cv.len());
+        self.buffer.len()
+    }
 
-        header_length + files_length
+    pub fn get_file(&self, idx: usize) -> &[u8] {
+        &self.buffer[self.offsets[idx]..]
     }
 }
 
 impl From<Vec<u8>> for Packed {
     fn from(file: Vec<u8>) -> Self {
         let mut reader = Cursor::new(&file);
-        let mut files: Vec<Vec<u8>> = Vec::new();
 
         let first_offset = u32::read(&mut reader).unwrap();
         let length = first_offset / 4;
 
-        let mut offsets: Vec<u32> = vec![first_offset];
+        let mut offsets: Vec<usize> = vec![first_offset as usize];
         for _ in 1..length {
-            let offset = u32::read(&mut reader).unwrap();
+            let offset = u32::read(&mut reader).unwrap() as usize;
 
             offsets.push(offset);
         }
 
+        let mut assumed_length = Vec::new();
+
         for i in 0..offsets.len() - 1 {
-            if offsets[i] == 0 {
-                files.push(Vec::new());
-
-                continue;
-            }
-
-            if offsets[i + 1] == 0 {
-                let non_zero = offsets[i + 1..].iter().find(|x| **x != 0);
-
-                match non_zero {
-                    Some(offset) => {
-                        files.push(file[offsets[i] as usize..*offset as usize].into());
-                    }
-                    None => {
-                        files.push(file[offsets[i] as usize..].into());
-                    }
-                }
-
-                continue;
-            }
-
-            if offsets[i] > offsets[i + 1] {
-                files.push(Vec::new());
-
-                continue;
-            }
-
-            files.push(file[offsets[i] as usize..offsets[i + 1] as usize].into());
+            assumed_length.push((offsets[i + 1] - offsets[i]).max(0));
         }
 
-        files.push(file[*offsets.last().unwrap() as usize..].into());
-        Packed { files }
+        assumed_length.push((offsets.len() - offsets.last().unwrap()).max(0));
+
+        Packed {
+            buffer: file,
+            assumed_length,
+            offsets,
+        }
     }
 }
 
 impl Into<Vec<u8>> for Packed {
     fn into(self) -> Vec<u8> {
-        let mut result = Vec::new();
-        let mut i: u32 = (self.files.len() * 4) as u32;
-
-        for file in &self.files {
-            i.write(&mut result).unwrap();
-            i += file.len() as u32;
-        }
-
-        for file in self.files {
-            result.extend(file);
-        }
-
-        result
+        self.buffer.clone()
     }
 }

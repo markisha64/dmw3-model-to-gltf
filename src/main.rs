@@ -9,6 +9,7 @@ use json::texture::Info;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
 use json::Index;
+use pack::Packed;
 use rlen::rlen_decode;
 use std::io::Write;
 use std::path::PathBuf;
@@ -213,16 +214,32 @@ fn color_tex_tris(
     }
 }
 
-fn grab_frames(animations: pack::Packed) -> Vec<Animation> {
+fn grab_frames(animations: Packed) -> Vec<Animation> {
     animations
-        .files
+        .offsets
         .iter()
-        .map(|animation| -> Animation {
+        .map(|offset| -> Animation {
+            let animation = animations.get_file(*offset);
+
             let mut reader = Cursor::new(&animation);
 
-            let instructions: Vec<AnimationInst> = (0..animation.len() / 16)
-                .map(|_| AnimationInst::read(&mut reader).unwrap())
-                .collect();
+            let mut instructions = Vec::new();
+
+            loop {
+                let instruction = AnimationInst::read(&mut reader).unwrap();
+
+                instructions.push(instruction);
+
+                let last = instructions.last().unwrap();
+
+                if last.t == 0x7fff {
+                    break;
+                }
+
+                if last.len == 0 {
+                    break;
+                }
+            }
 
             let mut frames = Vec::new();
             let mut sub_frames = Vec::new();
@@ -327,23 +344,23 @@ fn to_quaternion(frame: &AnimationFrame) -> Vec4 {
     }
 }
 
-fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
+fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
     let mut root = json::Root::default();
 
-    let animations = grab_frames(pack::Packed::from(unpacked.files[0].clone()));
+    let animations = grab_frames(Packed::from(unpacked.get_file(0).into()));
 
     let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
     let animation_files: Vec<Vec<Vec<AnimationFrame>>> = unpacked
-        .files
+        .offsets
         .iter()
         .enumerate()
-        .map(|(idx, part)| {
+        .map(|(idx, offset)| {
             if !animation_idxs.contains(&(idx as u32)) {
                 return Vec::new();
             }
 
-            let upkg = pack::Packed::from(part.clone());
+            let upkg = Packed::from(unpacked.get_file(*offset).into());
 
             upkg.files
                 .iter()
@@ -365,7 +382,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
 
     let texture_packed_raw = &unpacked.files[header.texture_offset as usize];
 
-    let texture_packed = pack::Packed::from(texture_packed_raw.clone());
+    let texture_packed = Packed::from(texture_packed_raw.clone());
 
     let texture_raw = match rlen_decode(&texture_packed.files[0]) {
         Ok(file) => file,
@@ -1391,17 +1408,20 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &pack::Packed) {
     json::serialize::to_writer_pretty(writer, &root).unwrap();
 }
 
-fn find_header<'a>(file: &'a pack::Packed) -> &'a Vec<u8> {
-    file.files
+fn find_header(file: &Packed) -> usize {
+    *file
+        .offsets
         .iter()
-        .find(|x| {
-            if x.len() < 8 {
+        .find(|offset| {
+            if file.assumed_length[**offset] < 8 {
                 return false;
             }
 
-            let len = u32::from_le_bytes([x[4], x[5], x[6], x[7]]) as u64;
+            let s = file.get_file(**offset);
 
-            (8 + len * 12) == x.len() as u64
+            let len = u32::from_le_bytes([s[4], s[5], s[6], s[7]]) as usize;
+
+            (8 + len * 12) == file.assumed_length[**offset]
         })
         .unwrap()
 }
@@ -1411,9 +1431,9 @@ fn main() {
 
     let file = fs::read(&args.file).unwrap();
 
-    let unpacked = pack::Packed::from(file);
+    let unpacked = Packed::from(file);
 
-    let header_raw = find_header(&unpacked);
+    let header_raw = unpacked.get_file(find_header(&unpacked));
 
     let mut header_reader = Cursor::new(&header_raw);
 
