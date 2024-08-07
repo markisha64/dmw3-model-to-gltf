@@ -1420,55 +1420,69 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
     json::serialize::to_writer_pretty(writer, &root).unwrap();
 }
 
-fn find_header(file: &Packed) -> usize {
-    file.iter()
-        .find(|idx| {
-            if file.assumed_length[*idx] < 8 {
-                return false;
-            }
+fn find_header_index(file: &Packed) -> anyhow::Result<usize> {
+    let found = file.iter().find(|idx| {
+        if file.assumed_length[*idx] < 8 {
+            return false;
+        }
 
-            let s = file.get_file(*idx);
+        let s = file.get_file(*idx);
 
-            let len = u32::from_le_bytes([s[4], s[5], s[6], s[7]]) as usize;
+        let len = u32::from_le_bytes([s[4], s[5], s[6], s[7]]) as usize;
 
-            (8 + len * 12) == file.assumed_length[*idx]
-        })
-        .unwrap()
+        (8 + len * 12) == file.assumed_length[*idx]
+    });
+
+    let found_unwrapped = match found {
+        Some(x) => x,
+        None => return Err(anyhow::anyhow!("automatic header find failed")),
+    };
+
+    Ok(found_unwrapped)
 }
 
-fn process_file(path: &PathBuf, header_index: Option<usize>) {
-    let file = fs::read(&path).unwrap();
+fn process_file(path: &PathBuf, header_index: Option<usize>) -> anyhow::Result<()> {
+    let file = fs::read(&path)?;
 
     let unpacked = Packed::from(file);
 
     let header_raw = match header_index {
-        None => unpacked.get_file(find_header(&unpacked)),
+        None => unpacked.get_file(find_header_index(&unpacked)?),
         Some(x) => unpacked.get_file(x),
     };
 
     let mut header_reader = Cursor::new(&header_raw);
 
-    let header = Header::read(&mut header_reader).unwrap();
+    let header = Header::read(&mut header_reader)?;
 
-    let filename: &str = path.file_stem().clone().unwrap().try_into().unwrap();
+    let filename_os = match path.file_stem() {
+        Some(x) => x,
+        None => return Err(anyhow::anyhow!("failed to get file stem")),
+    };
 
-    fs::create_dir_all(format!("{TARGET}/{filename}")).unwrap();
+    let filename: &str = filename_os.try_into()?;
+
+    fs::create_dir_all(format!("{TARGET}/{filename}"))?;
 
     create_gltf(&header, filename, &unpacked);
+
+    Ok(())
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     match args.file.is_file() {
-        true => process_file(&args.file, args.header_index),
+        true => process_file(&args.file, args.header_index)?,
         false => {
-            for entry in fs::read_dir(args.file).unwrap() {
-                let entryw = entry.unwrap();
+            for entry in fs::read_dir(args.file)? {
+                let entryw = entry?;
                 let fpath = entryw.path();
 
-                process_file(&fpath, None);
+                process_file(&fpath, None)?;
             }
         }
     }
+
+    Ok(())
 }
