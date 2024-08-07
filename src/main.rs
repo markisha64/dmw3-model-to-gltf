@@ -1436,14 +1436,12 @@ fn find_header(file: &Packed) -> usize {
         .unwrap()
 }
 
-fn main() {
-    let args = Args::parse();
-
-    let file = fs::read(&args.file).unwrap();
+fn process_file(path: &PathBuf, header_index: Option<usize>) {
+    let file = fs::read(&path).unwrap();
 
     let unpacked = Packed::from(file);
 
-    let header_raw = match args.header_index {
+    let header_raw = match header_index {
         None => unpacked.get_file(find_header(&unpacked)),
         Some(x) => unpacked.get_file(x),
     };
@@ -1452,9 +1450,25 @@ fn main() {
 
     let header = Header::read(&mut header_reader).unwrap();
 
-    let filename: &str = args.file.file_stem().clone().unwrap().try_into().unwrap();
+    let filename: &str = path.file_stem().clone().unwrap().try_into().unwrap();
 
     fs::create_dir_all(format!("{TARGET}/{filename}")).unwrap();
 
     create_gltf(&header, filename, &unpacked);
+}
+
+fn main() {
+    let args = Args::parse();
+
+    match args.file.is_file() {
+        true => process_file(&args.file, args.header_index),
+        false => {
+            for entry in fs::read_dir(args.file).unwrap() {
+                let entryw = entry.unwrap();
+                let fpath = entryw.path();
+
+                process_file(&fpath, None);
+            }
+        }
+    }
 }
