@@ -94,12 +94,6 @@ struct Vec4u16 {
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
-struct Mat4 {
-    values: [[f32; 4]; 4],
-}
-
-#[derive(Copy, Clone, Debug)]
-#[repr(C)]
 struct Texel {
     v: [f32; 2],
 }
