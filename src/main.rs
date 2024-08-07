@@ -363,14 +363,9 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
                 let mut res = Vec::new();
 
                 loop {
-                    let frame = AnimationFrame::read(&mut reader).unwrap();
-
-                    let id = frame.id;
-
-                    res.push(frame);
-
-                    if id == 0x7fff {
-                        break;
+                    match AnimationFrame::read(&mut reader) {
+                        Ok(frame) => res.push(frame),
+                        Err(_) => break,
                     }
                 }
 
@@ -1057,38 +1052,50 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
                             );
 
                             let translation = AnimationFrame {
-                                vx: sub_translation.vx
-                                    + (((sub_translation.vx - r_translation.vx) as i32 * scale)
-                                        / 4096) as i16,
-                                vy: sub_translation.vy
-                                    + (((sub_translation.vy - r_translation.vy) as i32 * scale)
-                                        / 4096) as i16,
-                                vz: sub_translation.vz
-                                    + (((sub_translation.vz - r_translation.vz) as i32 * scale)
-                                        / 4096) as i16,
+                                vx: (sub_translation.vx as i32
+                                    + (((sub_translation.vx as i32 - r_translation.vx as i32)
+                                        as i32
+                                        * scale)
+                                        / 4096)) as i16,
+                                vy: (sub_translation.vy as i32
+                                    + (((sub_translation.vy as i32 - r_translation.vy as i32)
+                                        as i32
+                                        * scale)
+                                        / 4096)) as i16,
+                                vz: (sub_translation.vz as i32
+                                    + (((sub_translation.vz as i32 - r_translation.vz as i32)
+                                        as i32
+                                        * scale)
+                                        / 4096)) as i16,
                                 id: sub_translation.id,
                             };
 
                             let rotation = AnimationFrame {
-                                vx: sub_rotation.vx
-                                    + (((sub_rotation.vx - r_rotation.vx) as i32 * scale) / 4096)
-                                        as i16,
-                                vy: sub_rotation.vy
-                                    + (((sub_rotation.vy - r_rotation.vy) as i32 * scale) / 4096)
-                                        as i16,
-                                vz: sub_rotation.vz
-                                    + (((sub_rotation.vz - r_rotation.vz) as i32 * scale) / 4096)
-                                        as i16,
+                                vx: (sub_rotation.vx as i32
+                                    + (((sub_rotation.vx as i32 - r_rotation.vx as i32) as i32
+                                        * scale)
+                                        / 4096)) as i16,
+                                vy: (sub_rotation.vy as i32
+                                    + (((sub_rotation.vy as i32 - r_rotation.vy as i32) as i32
+                                        * scale)
+                                        / 4096)) as i16,
+                                vz: (sub_rotation.vz as i32
+                                    + (((sub_rotation.vz as i32 - r_rotation.vz as i32) as i32
+                                        * scale)
+                                        / 4096)) as i16,
                                 id: sub_rotation.id,
                             };
 
                             let scale = AnimationFrame {
-                                vx: sub_scale.vx
-                                    + (((sub_scale.vx - r_scale.vx) as i32 * scale) / 4096) as i16,
-                                vy: sub_scale.vy
-                                    + (((sub_scale.vy - r_scale.vy) as i32 * scale) / 4096) as i16,
-                                vz: sub_scale.vz
-                                    + (((sub_scale.vz - r_scale.vz) as i32 * scale) / 4096) as i16,
+                                vx: (sub_scale.vx as i32
+                                    + (((sub_scale.vx as i32 - r_scale.vx as i32) as i32 * scale)
+                                        / 4096)) as i16,
+                                vy: (sub_scale.vy as i32
+                                    + (((sub_scale.vy as i32 - r_scale.vy as i32) as i32 * scale)
+                                        / 4096)) as i16,
+                                vz: (sub_scale.vz as i32
+                                    + (((sub_scale.vz as i32 - r_scale.vz as i32) as i32 * scale)
+                                        / 4096)) as i16,
                                 id: sub_scale.id,
                             };
 
