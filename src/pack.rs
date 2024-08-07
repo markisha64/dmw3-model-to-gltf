@@ -22,7 +22,23 @@ impl Packed {
     }
 }
 
-impl<T: AsRef<[u8]> + Into<Vec<u8>>> From<T> for Packed {
+trait Length {
+    fn len_t(&self) -> usize;
+}
+
+impl<T> Length for Vec<T> {
+    fn len_t(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T> Length for &[T] {
+    fn len_t(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T: AsRef<[u8]> + Length + Into<Vec<u8>>> From<T> for Packed {
     fn from(file: T) -> Self {
         let mut reader = Cursor::new(&file);
 
@@ -43,7 +59,7 @@ impl<T: AsRef<[u8]> + Into<Vec<u8>>> From<T> for Packed {
         }
 
         assumed_length
-            .push((offsets.len() as i32 - *offsets.last().unwrap() as i32).max(0) as usize);
+            .push((file.len_t() as i32 - *offsets.last().unwrap() as i32).max(0) as usize);
 
         Packed {
             buffer: file.into(),

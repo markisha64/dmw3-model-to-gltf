@@ -19,6 +19,8 @@ use tim::Tim;
 #[derive(Parser, Debug, Clone)]
 struct Args {
     file: PathBuf,
+
+    header_index: Option<usize>,
 }
 
 #[derive(BinRead)]
@@ -1430,7 +1432,10 @@ fn main() {
 
     let unpacked = Packed::from(file);
 
-    let header_raw = unpacked.get_file(find_header(&unpacked));
+    let header_raw = match args.header_index {
+        None => unpacked.get_file(find_header(&unpacked)),
+        Some(x) => unpacked.get_file(x),
+    };
 
     let mut header_reader = Cursor::new(&header_raw);
 
