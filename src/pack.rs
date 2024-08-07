@@ -3,9 +3,9 @@ use std::{io::Cursor, ops::Range};
 
 #[derive(Clone)]
 pub struct Packed {
-    pub buffer: Vec<u8>,
     pub assumed_length: Vec<usize>,
-    pub offsets: Vec<usize>,
+    buffer: Vec<u8>,
+    offsets: Vec<usize>,
 }
 
 impl Packed {
