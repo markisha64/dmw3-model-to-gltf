@@ -311,7 +311,11 @@ fn find_or_interpolate_frame<'a>(
     let previous_frame = &files[animation][index][idx - 1];
 
     let m = (frame_id - previous_frame.id) as i32;
-    let d = ((best_match.id - previous_frame.id) as i32) * 4096;
+    let mut d = ((best_match.id - previous_frame.id) as i32) * 4096;
+
+    if d == 0 {
+        d = 1;
+    }
 
     let delta = AnimationFrame {
         vx: best_match.vx - previous_frame.vx,
