@@ -18,8 +18,8 @@ impl Packed {
     }
 }
 
-impl From<Vec<u8>> for Packed {
-    fn from(file: Vec<u8>) -> Self {
+impl<T: AsRef<[u8]> + Into<Vec<u8>>> From<T> for Packed {
+    fn from(file: T) -> Self {
         let mut reader = Cursor::new(&file);
 
         let first_offset = u32::read(&mut reader).unwrap();
@@ -35,13 +35,14 @@ impl From<Vec<u8>> for Packed {
         let mut assumed_length = Vec::new();
 
         for i in 0..offsets.len() - 1 {
-            assumed_length.push((offsets[i + 1] - offsets[i]).max(0));
+            assumed_length.push((offsets[i + 1] as i32 - offsets[i] as i32).max(0) as usize);
         }
 
-        assumed_length.push((offsets.len() - offsets.last().unwrap()).max(0));
+        assumed_length
+            .push((offsets.len() as i32 - *offsets.last().unwrap() as i32).max(0) as usize);
 
         Packed {
-            buffer: file,
+            buffer: file.into(),
             assumed_length,
             offsets,
         }

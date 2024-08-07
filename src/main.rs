@@ -218,8 +218,9 @@ fn grab_frames(animations: Packed) -> Vec<Animation> {
     animations
         .offsets
         .iter()
-        .map(|offset| -> Animation {
-            let animation = animations.get_file(*offset);
+        .enumerate()
+        .map(|(idx, _)| -> Animation {
+            let animation = animations.get_file(idx);
 
             let mut reader = Cursor::new(&animation);
 
@@ -347,7 +348,7 @@ fn to_quaternion(frame: &AnimationFrame) -> Vec4 {
 fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
     let mut root = json::Root::default();
 
-    let animations = grab_frames(Packed::from(unpacked.get_file(0).into()));
+    let animations = grab_frames(Packed::from(Vec::from(unpacked.get_file(0))));
 
     let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
@@ -355,38 +356,46 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
         .offsets
         .iter()
         .enumerate()
-        .map(|(idx, offset)| {
+        .map(|(idx, _)| {
             if !animation_idxs.contains(&(idx as u32)) {
                 return Vec::new();
             }
 
-            let upkg = Packed::from(unpacked.get_file(*offset).into());
+            let upkg = Packed::from(unpacked.get_file(idx));
 
-            upkg.files
-                .iter()
-                .take(3)
-                .map(|buf| {
-                    let mut reader = Cursor::new(&buf);
+            let mut returnv: Vec<Vec<AnimationFrame>> = Vec::new();
 
-                    let mut res = Vec::new();
+            for fidx in 0..3 {
+                let mut reader = Cursor::new(upkg.get_file(fidx));
 
-                    for _ in 0..buf.len() / 16 {
-                        res.push(AnimationFrame::read(&mut reader).unwrap());
+                let mut res = Vec::new();
+
+                loop {
+                    let frame = AnimationFrame::read(&mut reader).unwrap();
+
+                    let id = frame.id;
+
+                    res.push(frame);
+
+                    if id == 0x7fff {
+                        break;
                     }
+                }
 
-                    res
-                })
-                .collect()
+                returnv.push(res);
+            }
+
+            returnv
         })
         .collect();
 
-    let texture_packed_raw = &unpacked.files[header.texture_offset as usize];
+    let texture_packed_raw = unpacked.get_file(header.texture_offset as usize);
 
-    let texture_packed = Packed::from(texture_packed_raw.clone());
+    let texture_packed = Packed::from(texture_packed_raw);
 
-    let texture_raw = match rlen_decode(&texture_packed.files[0]) {
+    let texture_raw = match rlen_decode(texture_packed.get_file(0)) {
         Ok(file) => file,
-        Err(_) => texture_packed_raw.clone(),
+        Err(_) => Vec::from(texture_packed_raw),
     };
 
     let texture_tim = Tim::from(texture_raw);
@@ -496,7 +505,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
     }
 
     for (idx, part) in header.parts.iter().enumerate() {
-        let vfile = &unpacked.files[part.geometry as usize];
+        let vfile = unpacked.get_file(part.geometry as usize);
 
         let verts_offset = u32::from_le_bytes([vfile[0], vfile[1], vfile[2], vfile[3]]) as usize;
 
@@ -1409,21 +1418,22 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
 }
 
 fn find_header(file: &Packed) -> usize {
-    *file
-        .offsets
+    file.offsets
         .iter()
-        .find(|offset| {
-            if file.assumed_length[**offset] < 8 {
+        .enumerate()
+        .find(|(idx, _)| {
+            if file.assumed_length[*idx] < 8 {
                 return false;
             }
 
-            let s = file.get_file(**offset);
+            let s = file.get_file(*idx);
 
             let len = u32::from_le_bytes([s[4], s[5], s[6], s[7]]) as usize;
 
-            (8 + len * 12) == file.assumed_length[**offset]
+            (8 + len * 12) == file.assumed_length[*idx]
         })
         .unwrap()
+        .0
 }
 
 fn main() {

@@ -1,6 +1,6 @@
 use std::iter;
 
-pub fn rlen_decode(bytes: &Vec<u8>) -> Result<Vec<u8>, String> {
+pub fn rlen_decode(bytes: &[u8]) -> Result<Vec<u8>, String> {
     if bytes[0..4] != *b"RLEN" {
         return Err("File not run length encoded".into());
     }
