@@ -1,5 +1,5 @@
 use binread::BinRead;
-use std::io::Cursor;
+use std::{io::Cursor, ops::Range};
 
 #[derive(Clone)]
 pub struct Packed {
@@ -15,6 +15,10 @@ impl Packed {
 
     pub fn get_file(&self, idx: usize) -> &[u8] {
         &self.buffer[self.offsets[idx]..]
+    }
+
+    pub fn iter(&self) -> Range<usize> {
+        0..self.offsets.len()
     }
 }
 

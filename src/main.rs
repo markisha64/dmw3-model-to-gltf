@@ -216,10 +216,8 @@ fn color_tex_tris(
 
 fn grab_frames(animations: Packed) -> Vec<Animation> {
     animations
-        .offsets
         .iter()
-        .enumerate()
-        .map(|(idx, _)| -> Animation {
+        .map(|idx| -> Animation {
             let animation = animations.get_file(idx);
 
             let mut reader = Cursor::new(&animation);
@@ -353,10 +351,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
     let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
     let animation_files: Vec<Vec<Vec<AnimationFrame>>> = unpacked
-        .offsets
         .iter()
-        .enumerate()
-        .map(|(idx, _)| {
+        .map(|idx| {
             if !animation_idxs.contains(&(idx as u32)) {
                 return Vec::new();
             }
@@ -1418,10 +1414,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
 }
 
 fn find_header(file: &Packed) -> usize {
-    file.offsets
-        .iter()
-        .enumerate()
-        .find(|(idx, _)| {
+    file.iter()
+        .find(|idx| {
             if file.assumed_length[*idx] < 8 {
                 return false;
             }
@@ -1433,7 +1427,6 @@ fn find_header(file: &Packed) -> usize {
             (8 + len * 12) == file.assumed_length[*idx]
         })
         .unwrap()
-        .0
 }
 
 fn main() {
