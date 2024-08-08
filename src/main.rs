@@ -210,10 +210,10 @@ fn color_tex_tris(
     }
 }
 
-fn grab_frames(animations: Packed) -> Vec<Animation> {
-    animations
+fn grab_frames(animations: Packed) -> anyhow::Result<Vec<Animation>> {
+    let returnv: anyhow::Result<Vec<Animation>> = animations
         .iter()
-        .map(|idx| -> Animation {
+        .map(|idx| -> anyhow::Result<Animation> {
             let animation = animations.get_file(idx);
 
             let mut reader = Cursor::new(&animation);
@@ -221,11 +221,14 @@ fn grab_frames(animations: Packed) -> Vec<Animation> {
             let mut instructions = Vec::new();
 
             loop {
-                let instruction = AnimationInst::read(&mut reader).unwrap();
+                let instruction = AnimationInst::read(&mut reader)?;
 
                 instructions.push(instruction);
 
-                let last = instructions.last().unwrap();
+                let last = match instructions.last() {
+                    Some(s) => s,
+                    None => return Err(anyhow::anyhow!("empty instructions")),
+                };
 
                 if last.t == 0x7fff {
                     break;
@@ -280,13 +283,15 @@ fn grab_frames(animations: Packed) -> Vec<Animation> {
                 }
             }
 
-            Animation {
+            Ok(Animation {
                 frames,
                 sub_frames,
                 set_frames,
-            }
+            })
         })
-        .collect()
+        .collect();
+
+    Ok(returnv?)
 }
 
 fn find_or_interpolate_frame<'a>(
@@ -294,7 +299,7 @@ fn find_or_interpolate_frame<'a>(
     animation: usize,
     frame_id: u16,
     index: usize,
-) -> AnimationFrame {
+) -> anyhow::Result<AnimationFrame> {
     let (idx, best_match) = files[animation][index]
         .iter()
         .enumerate()
@@ -305,7 +310,7 @@ fn find_or_interpolate_frame<'a>(
         ));
 
     if best_match.id == frame_id || idx == 0 {
-        return best_match.clone();
+        return Ok(best_match.clone());
     }
 
     let previous_frame = &files[animation][index][idx - 1];
@@ -324,12 +329,12 @@ fn find_or_interpolate_frame<'a>(
         id: best_match.id - previous_frame.id,
     };
 
-    AnimationFrame {
+    Ok(AnimationFrame {
         vx: previous_frame.vx + ((m * (delta.vx as i32)) / d) as i16,
         vy: previous_frame.vy + ((m * (delta.vy as i32)) / d) as i16,
         vz: previous_frame.vz + ((m * (delta.vz as i32)) / d) as i16,
         id: previous_frame.id,
-    }
+    })
 }
 
 fn to_quaternion(frame: &AnimationFrame) -> Vec4 {
@@ -343,10 +348,10 @@ fn to_quaternion(frame: &AnimationFrame) -> Vec4 {
     }
 }
 
-fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
+fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Result<()> {
     let mut root = json::Root::default();
 
-    let animations = grab_frames(Packed::from(Vec::from(unpacked.get_file(0))));
+    let animations = grab_frames(Packed::from(Vec::from(unpacked.get_file(0))))?;
 
     let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
@@ -975,38 +980,38 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
             header
                 .parts
                 .iter()
-                .map(|x| -> Vec<AnimationFrames> {
+                .map(|x| -> anyhow::Result<Vec<AnimationFrames>> {
                     anim.frames
                         .iter()
                         .enumerate()
-                        .map(|(idx, frame_id)| {
+                        .map(|(idx, frame_id)| -> anyhow::Result<AnimationFrames> {
                             if frame_id & 0x8000 == 0 {
                                 let translation = find_or_interpolate_frame(
                                     &animation_files,
                                     x.animation as usize,
                                     *frame_id,
                                     0,
-                                );
+                                )?;
 
                                 let rotation = find_or_interpolate_frame(
                                     &animation_files,
                                     x.animation as usize,
                                     *frame_id,
                                     1,
-                                );
+                                )?;
 
                                 let scale = find_or_interpolate_frame(
                                     &animation_files,
                                     x.animation as usize,
                                     *frame_id,
                                     2,
-                                );
+                                )?;
 
-                                return AnimationFrames {
+                                return Ok(AnimationFrames {
                                     translation,
                                     rotation,
                                     scale,
-                                };
+                                });
                             }
 
                             let sub_frame = anim.sub_frames[idx];
@@ -1018,42 +1023,42 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
                                 x.animation as usize,
                                 sub_frame,
                                 0,
-                            );
+                            )?;
 
                             let sub_rotation = find_or_interpolate_frame(
                                 &animation_files,
                                 x.animation as usize,
                                 sub_frame,
                                 1,
-                            );
+                            )?;
 
                             let sub_scale = find_or_interpolate_frame(
                                 &animation_files,
                                 x.animation as usize,
                                 sub_frame,
                                 2,
-                            );
+                            )?;
 
                             let r_translation = find_or_interpolate_frame(
                                 &animation_files,
                                 x.animation as usize,
                                 set_frame,
                                 0,
-                            );
+                            )?;
 
                             let r_rotation = find_or_interpolate_frame(
                                 &animation_files,
                                 x.animation as usize,
                                 set_frame,
                                 1,
-                            );
+                            )?;
 
                             let r_scale = find_or_interpolate_frame(
                                 &animation_files,
                                 x.animation as usize,
                                 set_frame,
                                 2,
-                            );
+                            )?;
 
                             let translation = AnimationFrame {
                                 vx: (sub_translation.vx as i32
@@ -1103,15 +1108,15 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
                                 id: sub_scale.id,
                             };
 
-                            AnimationFrames {
+                            Ok(AnimationFrames {
                                 translation,
                                 rotation,
                                 scale,
-                            }
+                            })
                         })
-                        .collect()
+                        .collect::<anyhow::Result<Vec<AnimationFrames>>>()
                 })
-                .collect(),
+                .collect::<anyhow::Result<Vec<Vec<AnimationFrames>>>>()?,
         );
     }
 
@@ -1120,14 +1125,18 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
     let mut animation_rotation: Vec<Vec4> = Vec::new();
     let mut animation_scale: Vec<Vec3> = Vec::new();
 
-    let longest_animation = animations
+    let longest_animation = match animations
         .iter()
         .max_by(|x, y| x.frames.len().cmp(&y.frames.len()))
-        .unwrap()
-        .frames
-        .len();
+    {
+        Some(s) => s,
+        None => {
+            return Err(anyhow::anyhow!("failed to find longest animation"));
+        }
+    };
 
-    animation_timestamps.extend((0..longest_animation).map(|x| x as f32 * (1.0 / FPS)));
+    animation_timestamps
+        .extend((0..longest_animation.frames.len()).map(|x| x as f32 * (1.0 / FPS)));
 
     for animation in animations_parsed {
         for part in animation {
@@ -1371,44 +1380,38 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
     }
 
     let vertex_bin = to_padded_byte_vector(vertices);
-    let mut vertex_writer =
-        fs::File::create(format!("{TARGET}/{filename}/vertex_buffer.bin")).unwrap();
-    vertex_writer.write_all(&vertex_bin).unwrap();
+    let mut vertex_writer = fs::File::create(format!("{TARGET}/{filename}/vertex_buffer.bin"))?;
+    vertex_writer.write_all(&vertex_bin)?;
 
     let tex_coords_bin = to_padded_byte_vector(tex_coords);
-    let mut tex_coords_writer =
-        fs::File::create(format!("{TARGET}/{filename}/tex_buffer.bin")).unwrap();
-    tex_coords_writer.write_all(&tex_coords_bin).unwrap();
+    let mut tex_coords_writer = fs::File::create(format!("{TARGET}/{filename}/tex_buffer.bin"))?;
+    tex_coords_writer.write_all(&tex_coords_bin)?;
 
     let joints_bin = to_padded_byte_vector(joints);
-    let mut joints_writer = fs::File::create(format!("{TARGET}/{filename}/joints.bin")).unwrap();
-    joints_writer.write_all(&joints_bin).unwrap();
+    let mut joints_writer = fs::File::create(format!("{TARGET}/{filename}/joints.bin"))?;
+    joints_writer.write_all(&joints_bin)?;
 
     let weights_bin = to_padded_byte_vector(weights);
-    let mut weights_writer = fs::File::create(format!("{TARGET}/{filename}/weights.bin")).unwrap();
-    weights_writer.write_all(&weights_bin).unwrap();
+    let mut weights_writer = fs::File::create(format!("{TARGET}/{filename}/weights.bin"))?;
+    weights_writer.write_all(&weights_bin)?;
 
     let timestamps_bin = to_padded_byte_vector(animation_timestamps);
-    let mut timestamps_writer = fs::File::create(format!("{TARGET}/{filename}/ts.bin")).unwrap();
-    timestamps_writer.write_all(&timestamps_bin).unwrap();
+    let mut timestamps_writer = fs::File::create(format!("{TARGET}/{filename}/ts.bin"))?;
+    timestamps_writer.write_all(&timestamps_bin)?;
 
     let translations_bin = to_padded_byte_vector(animation_translations);
-    let mut translations_writer =
-        fs::File::create(format!("{TARGET}/{filename}/trans.bin")).unwrap();
-    translations_writer.write_all(&translations_bin).unwrap();
+    let mut translations_writer = fs::File::create(format!("{TARGET}/{filename}/trans.bin"))?;
+    translations_writer.write_all(&translations_bin)?;
 
     let rotation_bin = to_padded_byte_vector(animation_rotation);
-    let mut rotation_writer =
-        fs::File::create(format!("{TARGET}/{filename}/rotation.bin")).unwrap();
-    rotation_writer.write_all(&rotation_bin).unwrap();
+    let mut rotation_writer = fs::File::create(format!("{TARGET}/{filename}/rotation.bin"))?;
+    rotation_writer.write_all(&rotation_bin)?;
 
     let scale_bin = to_padded_byte_vector(animation_scale);
-    let mut scale_writer = fs::File::create(format!("{TARGET}/{filename}/scale.bin")).unwrap();
-    scale_writer.write_all(&scale_bin).unwrap();
+    let mut scale_writer = fs::File::create(format!("{TARGET}/{filename}/scale.bin"))?;
+    scale_writer.write_all(&scale_bin)?;
 
-    texture_png
-        .save(format!("{TARGET}/{filename}/texture.png"))
-        .unwrap();
+    texture_png.save(format!("{TARGET}/{filename}/texture.png"))?;
 
     root.push(json::Scene {
         extensions: Default::default(),
@@ -1416,8 +1419,10 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) {
         nodes: vec![nodes[0]],
     });
 
-    let writer = fs::File::create(format!("{TARGET}/{filename}/model.gltf")).unwrap();
-    json::serialize::to_writer_pretty(writer, &root).unwrap();
+    let writer = fs::File::create(format!("{TARGET}/{filename}/model.gltf"))?;
+    json::serialize::to_writer_pretty(writer, &root)?;
+
+    Ok(())
 }
 
 fn find_header_index(file: &Packed) -> anyhow::Result<usize> {
@@ -1464,7 +1469,7 @@ fn process_file(path: &PathBuf, header_index: Option<usize>) -> anyhow::Result<(
 
     fs::create_dir_all(format!("{TARGET}/{filename}"))?;
 
-    create_gltf(&header, filename, &unpacked);
+    create_gltf(&header, filename, &unpacked)?;
 
     Ok(())
 }
