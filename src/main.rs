@@ -316,11 +316,7 @@ fn find_or_interpolate_frame<'a>(
     let previous_frame = &files[animation][index][idx - 1];
 
     let m = (frame_id - previous_frame.id) as i32;
-    let mut d = ((best_match.id - previous_frame.id) as i32) * 4096;
-
-    if d == 0 {
-        d = 1;
-    }
+    let d = ((best_match.id - previous_frame.id) as i32) * 4096;
 
     let delta = AnimationFrame {
         vx: best_match.vx - previous_frame.vx,
@@ -1447,6 +1443,7 @@ fn find_header_index(file: &Packed) -> anyhow::Result<usize> {
 }
 
 fn process_file(path: &PathBuf, header_index: Option<usize>) -> anyhow::Result<()> {
+    println!("{}", path.to_str().unwrap_or("unk"));
     let file = fs::read(&path)?;
 
     let unpacked = Packed::from(file);
@@ -1484,7 +1481,10 @@ fn main() -> anyhow::Result<()> {
                 let entryw = entry?;
                 let fpath = entryw.path();
 
-                process_file(&fpath, None)?;
+                match process_file(&fpath, None) {
+                    Ok(_) => {}
+                    Err(e) => println!("{}", e),
+                };
             }
         }
     }
