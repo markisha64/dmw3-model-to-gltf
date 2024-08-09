@@ -536,8 +536,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         let mut clut_x = 0;
         let mut clut_y = 0;
 
-        let mut clut = get_clut(&texture_tim, clut_x, clut_y);
-
         let mut is_quad = 0;
         let mut has_textures = 0;
         // let mut s3 = 0;
@@ -573,8 +571,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
 
                         clut_x = face_file[i + 4] as usize;
                         clut_y = face_file[i + 5] as usize;
-
-                        clut = get_clut(&texture_tim, clut_x, clut_y);
 
                         i += 7;
                     } else if t == 0 {
