@@ -3,7 +3,8 @@ mod pack;
 use binread::{io::Cursor, BinRead};
 use clap::Parser;
 use gltf_json as json;
-use image::RgbaImage;
+use image::{Rgb, RgbImage, RgbaImage};
+use imageproc::drawing::draw_polygon_mut;
 use json::material::{EmissiveFactor, PbrBaseColorFactor, PbrMetallicRoughness, StrengthFactor};
 use json::texture::Info;
 use json::validation::Checked::Valid;
@@ -11,10 +12,46 @@ use json::validation::USize64;
 use json::Index;
 use pack::Packed;
 use rlen::rlen_decode;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, mem};
 use tim::Tim;
+
+fn distance(a: &imageproc::point::Point<i32>, b: &imageproc::point::Point<i32>) -> i32 {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+
+    dx * dx + dy * dy
+}
+
+fn reorder_points(
+    mut points: Vec<imageproc::point::Point<i32>>,
+) -> Vec<imageproc::point::Point<i32>> {
+    if points.is_empty() {
+        return points;
+    }
+
+    let mut ordered_points = vec![points.remove(0)]; // Start with the first point
+
+    while !points.is_empty() {
+        // Find the point with the minimum distance to the last point in the ordered list
+        let (index, _) = points
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                distance(ordered_points.last().unwrap(), a)
+                    .partial_cmp(&distance(&ordered_points.last().unwrap(), b))
+                    .unwrap()
+            })
+            .unwrap();
+
+        // Add the closest point to the ordered list and remove it from the original list
+        ordered_points.push(points.remove(index));
+    }
+
+    ordered_points
+}
 
 #[derive(Parser, Debug, Clone)]
 struct Args {
@@ -496,6 +533,8 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         nodes.push(node);
     }
 
+    let mut colormap: HashMap<(usize, usize), Vec<Vec<(i32, i32)>>> = HashMap::new();
+
     for (idx, part) in header.parts.iter().enumerate() {
         let vfile = unpacked.get_file(part.geometry as usize);
 
@@ -570,6 +609,10 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                         clut_x = face_file[i + 4] as usize;
                         clut_y = face_file[i + 5] as usize;
 
+                        if !colormap.contains_key(&(clut_x, clut_y)) {
+                            colormap.insert((clut_x, clut_y), Vec::new());
+                        }
+
                         clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
 
                         i += 7;
@@ -621,6 +664,17 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                                 face_tex[3] = Texel {
                                     v: [(tex4.0 as f32) / 255.0, (tex4.1 as f32) / 255.0],
                                 };
+                                let cset = colormap.get_mut(&(clut_x, clut_y)).unwrap();
+                                cset.push(vec![
+                                    (tex1.0 as i32, tex1.1 as i32),
+                                    (tex2.0 as i32, tex2.1 as i32),
+                                    (tex3.0 as i32, tex3.1 as i32),
+                                ]);
+                                cset.push(vec![
+                                    (tex2.0 as i32, tex2.1 as i32),
+                                    (tex3.0 as i32, tex3.1 as i32),
+                                    (tex4.0 as i32, tex4.1 as i32),
+                                ]);
                             } else {
                                 let tex1 = (
                                     (face_file[offset] as u32 + tex_origin_1) % 256,
@@ -644,6 +698,13 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                                 face_tex[2] = Texel {
                                     v: [(tex3.0 as f32) / 255.0, (tex3.1 as f32) / 255.0],
                                 };
+
+                                let cset = colormap.get_mut(&(clut_x, clut_y)).unwrap();
+                                cset.push(vec![
+                                    (tex1.0 as i32, tex1.1 as i32),
+                                    (tex2.0 as i32, tex2.1 as i32),
+                                    (tex3.0 as i32, tex3.1 as i32),
+                                ]);
                             }
                         }
 
@@ -785,6 +846,45 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
             tex_len: tex_coords_ref.len() - old_tex_len,
         });
     }
+
+    println!("{:?}", &colormap.keys());
+    let mut img = RgbImage::from_pixel(256, 256, Rgb([255, 255, 255]));
+
+    for (idx, ((cx, cy), set)) in colormap.iter().enumerate() {
+        let mut imgp = RgbImage::from_pixel(256, 256, Rgb([255, 255, 255]));
+
+        let r = (*cx as u8)
+            .overflowing_mul(*cx as u8)
+            .0
+            .overflowing_add(32)
+            .0;
+        let g = (*cy as u8)
+            .overflowing_mul(*cy as u8)
+            .0
+            .overflowing_add(16)
+            .0;
+
+        let color = Rgb([r, g, 128]);
+
+        for polygon in set {
+            if HashSet::<(i32, i32)>::from_iter(polygon.clone().into_iter()).len() == polygon.len()
+            {
+                let poly = Vec::from_iter(
+                    polygon
+                        .iter()
+                        .map(|(x, y)| imageproc::point::Point::new(*x, *y)),
+                );
+
+                draw_polygon_mut(&mut img, &poly[..], color);
+                draw_polygon_mut(&mut imgp, &poly[..], color);
+            }
+        }
+
+        imgp.save(format!("{TARGET}/{filename}/colormap_{idx}.png"))
+            .unwrap();
+    }
+    img.save(format!("{TARGET}/{filename}/colormap.png"))
+        .unwrap();
 
     let texture_buffer_length = tex_coords_ref.len() * mem::size_of::<Texel>();
     let texture_buffer = root.push(json::Buffer {

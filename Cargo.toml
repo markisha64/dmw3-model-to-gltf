@@ -12,6 +12,7 @@ binwrite = "0.2.1"
 clap = { version = "4.5.3", features = ["derive"] }
 gltf-json = "1.4.1"
 image = "0.25.1"
+imageproc = "0.25.0"
 rlen = { path = "./rlen" }
 tim = { path = "./tim" }
 
