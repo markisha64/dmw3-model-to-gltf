@@ -344,6 +344,10 @@ fn to_quaternion(frame: &AnimationFrame) -> Vec4 {
     }
 }
 
+fn get_clut(tim: &Tim, clut_x: usize, clut_y: usize) -> &[u8] {
+    &tim.image.bytes[2 * (64 * clut_y + clut_x)..]
+}
+
 fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Result<()> {
     let mut root = json::Root::default();
 
@@ -392,14 +396,14 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
 
     let texture_tim = Tim::from(texture_raw);
 
-    let mut texture_png: RgbaImage = RgbaImage::new(256, 256);
+    let mut textures: Vec<RgbaImage> = (0..8).map(|_| RgbaImage::new(256, 256)).collect();
 
     let mut nodes = Vec::new();
 
     let image = root.push(json::Image {
         buffer_view: None,
         mime_type: None,
-        uri: Some("texture.png".into()),
+        uri: Some("texture0.png".into()),
         extensions: Default::default(),
         extras: Default::default(),
     });
@@ -532,7 +536,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         let mut clut_x = 0;
         let mut clut_y = 0;
 
-        let mut clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
+        let mut clut = get_clut(&texture_tim, clut_x, clut_y);
 
         let mut is_quad = 0;
         let mut has_textures = 0;
@@ -570,7 +574,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                         clut_x = face_file[i + 4] as usize;
                         clut_y = face_file[i + 5] as usize;
 
-                        clut = &texture_tim.image.bytes[2 * (64 * clut_y + clut_x)..];
+                        clut = get_clut(&texture_tim, clut_x, clut_y);
 
                         i += 7;
                     } else if t == 0 {
@@ -664,41 +668,43 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                             tex_coords_ref.push(face_tex[2]);
                             tex_coords_ref.push(face_tex[3]);
 
-                            color_tex_tris(
-                                &mut texture_png,
-                                &texture_tim,
-                                clut,
-                                (
-                                    (face_tex[0].v[0] * 255.0) as f64,
-                                    (face_tex[0].v[1] * 255.0) as f64,
-                                ),
-                                (
-                                    (face_tex[1].v[0] * 255.0) as f64,
-                                    (face_tex[1].v[1] * 255.0) as f64,
-                                ),
-                                (
-                                    (face_tex[2].v[0] * 255.0) as f64,
-                                    (face_tex[2].v[1] * 255.0) as f64,
-                                ),
-                            );
+                            for i in 0..8 {
+                                color_tex_tris(
+                                    &mut textures[i],
+                                    &texture_tim,
+                                    get_clut(&texture_tim, clut_x, clut_y + i),
+                                    (
+                                        (face_tex[0].v[0] * 255.0) as f64,
+                                        (face_tex[0].v[1] * 255.0) as f64,
+                                    ),
+                                    (
+                                        (face_tex[1].v[0] * 255.0) as f64,
+                                        (face_tex[1].v[1] * 255.0) as f64,
+                                    ),
+                                    (
+                                        (face_tex[2].v[0] * 255.0) as f64,
+                                        (face_tex[2].v[1] * 255.0) as f64,
+                                    ),
+                                );
 
-                            color_tex_tris(
-                                &mut texture_png,
-                                &texture_tim,
-                                clut,
-                                (
-                                    (face_tex[1].v[0] * 255.0) as f64,
-                                    (face_tex[1].v[1] * 255.0) as f64,
-                                ),
-                                (
-                                    (face_tex[2].v[0] * 255.0) as f64,
-                                    (face_tex[2].v[1] * 255.0) as f64,
-                                ),
-                                (
-                                    (face_tex[3].v[0] * 255.0) as f64,
-                                    (face_tex[3].v[1] * 255.0) as f64,
-                                ),
-                            );
+                                color_tex_tris(
+                                    &mut textures[i],
+                                    &texture_tim,
+                                    get_clut(&texture_tim, clut_x, clut_y + i),
+                                    (
+                                        (face_tex[1].v[0] * 255.0) as f64,
+                                        (face_tex[1].v[1] * 255.0) as f64,
+                                    ),
+                                    (
+                                        (face_tex[2].v[0] * 255.0) as f64,
+                                        (face_tex[2].v[1] * 255.0) as f64,
+                                    ),
+                                    (
+                                        (face_tex[3].v[0] * 255.0) as f64,
+                                        (face_tex[3].v[1] * 255.0) as f64,
+                                    ),
+                                );
+                            }
                         } else {
                             vertices_ref.push(face[0]);
                             vertices_ref.push(face[1]);
@@ -708,23 +714,25 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                             tex_coords_ref.push(face_tex[1]);
                             tex_coords_ref.push(face_tex[2]);
 
-                            color_tex_tris(
-                                &mut texture_png,
-                                &texture_tim,
-                                clut,
-                                (
-                                    (face_tex[0].v[0] * 255.0) as f64,
-                                    (face_tex[0].v[1] * 255.0) as f64,
-                                ),
-                                (
-                                    (face_tex[1].v[0] * 255.0) as f64,
-                                    (face_tex[1].v[1] * 255.0) as f64,
-                                ),
-                                (
-                                    (face_tex[2].v[0] * 255.0) as f64,
-                                    (face_tex[2].v[1] * 255.0) as f64,
-                                ),
-                            );
+                            for i in 0..8 {
+                                color_tex_tris(
+                                    &mut textures[i],
+                                    &texture_tim,
+                                    get_clut(&texture_tim, clut_x, clut_y + i),
+                                    (
+                                        (face_tex[0].v[0] * 255.0) as f64,
+                                        (face_tex[0].v[1] * 255.0) as f64,
+                                    ),
+                                    (
+                                        (face_tex[1].v[0] * 255.0) as f64,
+                                        (face_tex[1].v[1] * 255.0) as f64,
+                                    ),
+                                    (
+                                        (face_tex[2].v[0] * 255.0) as f64,
+                                        (face_tex[2].v[1] * 255.0) as f64,
+                                    ),
+                                );
+                            }
                         }
 
                         let face_length_in_bytes = is_quad + 3;
@@ -1407,7 +1415,9 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
     let mut scale_writer = fs::File::create(format!("{TARGET}/{filename}/scale.bin"))?;
     scale_writer.write_all(&scale_bin)?;
 
-    texture_png.save(format!("{TARGET}/{filename}/texture.png"))?;
+    for (idx, texture_png) in textures.iter().enumerate() {
+        texture_png.save(format!("{TARGET}/{filename}/texture{idx}.png"))?;
+    }
 
     root.push(json::Scene {
         extensions: Default::default(),
