@@ -303,7 +303,7 @@ fn find_or_interpolate_frame<'a>(
     let (idx, best_match) = files[animation][index]
         .iter()
         .enumerate()
-        .find(|(_idx, frame)| frame.id >= frame_id)
+        .find(|(_idx, frame)| frame.id as i16 > frame_id as i16)
         .unwrap_or((
             files[animation][index].len() - 1,
             files[animation][index].last().unwrap(),
