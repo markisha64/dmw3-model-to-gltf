@@ -1504,6 +1504,16 @@ fn main() -> anyhow::Result<()> {
                 let entryw = entry?;
                 let fpath = entryw.path();
 
+                let meta = entryw.metadata()?;
+                let fname = match fpath.file_name() {
+                    Some(s) => s.to_str().unwrap_or(""),
+                    None => continue,
+                };
+
+                if meta.is_dir() || fname.starts_with(".") {
+                    continue;
+                }
+
                 entries.push(fpath);
             }
 
