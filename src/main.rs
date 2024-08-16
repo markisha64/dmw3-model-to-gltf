@@ -1479,8 +1479,6 @@ fn process_file(path: &PathBuf, header_index: Option<usize>) -> anyhow::Result<(
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    dbg!(&args);
-
     match args.file.is_file() {
         true => process_file(&args.file, args.header_index)?,
         false => {
