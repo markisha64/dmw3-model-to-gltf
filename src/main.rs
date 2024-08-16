@@ -1524,19 +1524,25 @@ fn main() -> anyhow::Result<()> {
                     .chunks(chunk_size)
                     .map(|chunk| {
                         s.spawn(move || {
+                            let mut success = 0;
+
                             for fpath in chunk {
                                 match process_file(&fpath, None) {
-                                    Ok(_) => {}
+                                    Ok(_) => success += 1,
                                     Err(e) => println!("{}", e),
                                 };
                             }
+
+                            success
                         })
                     })
                     .collect();
 
-                for thread in threads {
-                    let _ = thread.join();
-                }
+                let sum = threads
+                    .into_iter()
+                    .fold(0, |pv, thread| pv + thread.join().unwrap_or(0));
+
+                println!("{}/{} success", sum, entries.len());
             })
         }
     }
