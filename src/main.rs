@@ -13,6 +13,7 @@ use pack::Packed;
 use rlen::rlen_decode;
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread;
 use std::{fs, mem};
 use tim::Tim;
 
@@ -20,7 +21,11 @@ use tim::Tim;
 struct Args {
     file: PathBuf,
 
+    #[arg(long)]
     header_index: Option<usize>,
+
+    #[arg(short, long, default_value_t = 1)]
+    threads: usize,
 }
 
 #[derive(BinRead)]
@@ -1474,18 +1479,41 @@ fn process_file(path: &PathBuf, header_index: Option<usize>) -> anyhow::Result<(
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
+    dbg!(&args);
+
     match args.file.is_file() {
         true => process_file(&args.file, args.header_index)?,
         false => {
+            let mut entries: Vec<PathBuf> = Vec::new();
+
             for entry in fs::read_dir(args.file)? {
                 let entryw = entry?;
                 let fpath = entryw.path();
 
-                match process_file(&fpath, None) {
-                    Ok(_) => {}
-                    Err(e) => println!("{}", e),
-                };
+                entries.push(fpath);
             }
+
+            let chunk_size = (entries.len() + args.threads - 1) / args.threads;
+
+            thread::scope(|s| {
+                let threads: Vec<_> = entries
+                    .chunks(chunk_size)
+                    .map(|chunk| {
+                        s.spawn(move || {
+                            for fpath in chunk {
+                                match process_file(&fpath, None) {
+                                    Ok(_) => {}
+                                    Err(e) => println!("{}", e),
+                                };
+                            }
+                        })
+                    })
+                    .collect();
+
+                for thread in threads {
+                    let _ = thread.join();
+                }
+            })
         }
     }
 
