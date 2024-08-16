@@ -22,22 +22,6 @@ impl Packed {
     }
 }
 
-trait Length {
-    fn len_t(&self) -> usize;
-}
-
-impl<T> Length for Vec<T> {
-    fn len_t(&self) -> usize {
-        self.len()
-    }
-}
-
-impl<T> Length for &[T] {
-    fn len_t(&self) -> usize {
-        self.len()
-    }
-}
-
 impl TryFrom<Vec<u8>> for Packed {
     type Error = anyhow::Error;
 
