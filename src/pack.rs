@@ -38,16 +38,18 @@ impl<T> Length for &[T] {
     }
 }
 
-impl<T: AsRef<[u8]> + Length + Into<Vec<u8>>> From<T> for Packed {
-    fn from(file: T) -> Self {
+impl TryFrom<Vec<u8>> for Packed {
+    type Error = anyhow::Error;
+
+    fn try_from(file: Vec<u8>) -> Result<Self, Self::Error> {
         let mut reader = Cursor::new(&file);
 
-        let first_offset = u32::read(&mut reader).unwrap();
+        let first_offset = u32::read(&mut reader)?;
         let length = first_offset / 4;
 
         let mut offsets: Vec<usize> = vec![first_offset as usize];
         for _ in 1..length {
-            let offset = u32::read(&mut reader).unwrap() as usize;
+            let offset = u32::read(&mut reader)? as usize;
 
             offsets.push(offset);
         }
@@ -55,17 +57,78 @@ impl<T: AsRef<[u8]> + Length + Into<Vec<u8>>> From<T> for Packed {
         let mut assumed_length = Vec::new();
 
         for i in 0..offsets.len() - 1 {
-            assumed_length.push((offsets[i + 1] as i32 - offsets[i] as i32).max(0) as usize);
+            let offset1 = match offsets.get(i + 1) {
+                Some(k) => *k as i32,
+                None => return Err(anyhow::anyhow!("invalid index")),
+            };
+
+            let offset2 = match offsets.get(i) {
+                Some(k) => *k as i32,
+                None => return Err(anyhow::anyhow!("invalid index")),
+            };
+
+            assumed_length.push((offset1 - offset2).max(0) as usize);
         }
 
-        assumed_length
-            .push((file.len_t() as i32 - *offsets.last().unwrap() as i32).max(0) as usize);
+        let last_offset = match offsets.last() {
+            Some(k) => *k as i32,
+            None => return Err(anyhow::anyhow!("empty vec")),
+        };
 
-        Packed {
+        assumed_length.push((file.len() as i32 - last_offset).max(0) as usize);
+
+        Ok(Packed {
             buffer: file.into(),
             assumed_length,
             offsets,
+        })
+    }
+}
+
+impl TryFrom<&[u8]> for Packed {
+    type Error = anyhow::Error;
+
+    fn try_from(file: &[u8]) -> Result<Self, Self::Error> {
+        let mut reader = Cursor::new(&file);
+
+        let first_offset = u32::read(&mut reader)?;
+        let length = first_offset / 4;
+
+        let mut offsets: Vec<usize> = vec![first_offset as usize];
+        for _ in 1..length {
+            let offset = u32::read(&mut reader)? as usize;
+
+            offsets.push(offset);
         }
+
+        let mut assumed_length = Vec::new();
+
+        for i in 0..offsets.len() - 1 {
+            let offset1 = match offsets.get(i + 1) {
+                Some(k) => *k as i32,
+                None => return Err(anyhow::anyhow!("invalid index")),
+            };
+
+            let offset2 = match offsets.get(i) {
+                Some(k) => *k as i32,
+                None => return Err(anyhow::anyhow!("invalid index")),
+            };
+
+            assumed_length.push((offset1 - offset2).max(0) as usize);
+        }
+
+        let last_offset = match offsets.last() {
+            Some(k) => *k as i32,
+            None => return Err(anyhow::anyhow!("empty vec")),
+        };
+
+        assumed_length.push((file.len() as i32 - last_offset).max(0) as usize);
+
+        Ok(Packed {
+            buffer: file.into(),
+            assumed_length,
+            offsets,
+        })
     }
 }
 
