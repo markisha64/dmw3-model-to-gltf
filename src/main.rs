@@ -1436,7 +1436,23 @@ fn find_header_index(file: &Packed) -> anyhow::Result<usize> {
 
         let len = u32::from_le_bytes([s[4], s[5], s[6], s[7]]) as usize;
 
-        (8 + len * 12) == file.assumed_length[*idx]
+        if (8 + len * 12) != file.assumed_length[*idx] {
+            return false;
+        }
+
+        let header = match Header::read(&mut Cursor::new(s)) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+
+        match header
+            .parts
+            .iter()
+            .find(|x| x.parent_index >= header._part_count)
+        {
+            Some(_) => false,
+            None => true,
+        }
     });
 
     let found_unwrapped = match found {
