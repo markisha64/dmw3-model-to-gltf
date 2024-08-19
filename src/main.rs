@@ -219,7 +219,7 @@ fn grab_frames(animations: Packed) -> anyhow::Result<Vec<Animation>> {
     let returnv: anyhow::Result<Vec<Animation>> = animations
         .iter()
         .map(|idx| -> anyhow::Result<Animation> {
-            let animation = animations.get_file(idx);
+            let animation = animations.get_file(idx)?;
 
             let mut reader = Cursor::new(&animation);
 
@@ -352,7 +352,7 @@ fn to_quaternion(frame: &AnimationFrame) -> Vec4 {
 fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Result<()> {
     let mut root = json::Root::default();
 
-    let animations = grab_frames(Packed::try_from(Vec::from(unpacked.get_file(0)))?)?;
+    let animations = grab_frames(Packed::try_from(Vec::from(unpacked.get_file(0)?))?)?;
 
     let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
@@ -363,12 +363,12 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                 return Vec::new();
             }
 
-            let upkg = Packed::try_from(unpacked.get_file(idx)).unwrap();
+            let upkg = Packed::try_from(unpacked.get_file(idx).unwrap()).unwrap();
 
             let mut returnv: Vec<Vec<AnimationFrame>> = Vec::new();
 
             for fidx in 0..3 {
-                let mut reader = Cursor::new(upkg.get_file(fidx));
+                let mut reader = Cursor::new(upkg.get_file(fidx).unwrap());
 
                 let mut res = Vec::new();
 
@@ -386,11 +386,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         })
         .collect();
 
-    let texture_packed_raw = unpacked.get_file(header.texture_offset as usize);
+    let texture_packed_raw = unpacked.get_file(header.texture_offset as usize)?;
 
     let texture_packed = Packed::try_from(texture_packed_raw)?;
 
-    let texture_raw = match rlen_decode(texture_packed.get_file(0)) {
+    let texture_raw = match rlen_decode(texture_packed.get_file(0)?) {
         Ok(file) => file,
         Err(_) => Vec::from(texture_packed_raw),
     };
@@ -502,7 +502,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
     }
 
     for (idx, part) in header.parts.iter().enumerate() {
-        let vfile = unpacked.get_file(part.geometry as usize);
+        let vfile = unpacked.get_file(part.geometry as usize)?;
 
         let verts_offset = u32::from_le_bytes([vfile[0], vfile[1], vfile[2], vfile[3]]) as usize;
 
@@ -1432,7 +1432,10 @@ fn find_header_index(file: &Packed) -> anyhow::Result<usize> {
             return false;
         }
 
-        let s = file.get_file(*idx);
+        let s = match file.get_file(*idx) {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
 
         let len = u32::from_le_bytes([s[4], s[5], s[6], s[7]]) as usize;
 
@@ -1470,8 +1473,8 @@ fn process_file(path: &PathBuf, header_index: Option<usize>) -> anyhow::Result<(
     let unpacked = Packed::try_from(file)?;
 
     let header_raw = match header_index {
-        None => unpacked.get_file(find_header_index(&unpacked)?),
-        Some(x) => unpacked.get_file(x),
+        None => unpacked.get_file(find_header_index(&unpacked)?)?,
+        Some(x) => unpacked.get_file(x)?,
     };
 
     let mut header_reader = Cursor::new(&header_raw);

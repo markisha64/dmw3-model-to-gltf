@@ -5,7 +5,6 @@ use std::{io::Cursor, ops::Range};
 pub struct Packed {
     pub assumed_length: Vec<usize>,
     buffer: Vec<u8>,
-    offsets: Vec<usize>,
 }
 
 impl Packed {
@@ -13,12 +12,15 @@ impl Packed {
         self.buffer.len()
     }
 
-    pub fn get_file(&self, idx: usize) -> &[u8] {
-        &self.buffer[self.offsets[idx]..]
+    pub fn get_file(&self, idx: usize) -> anyhow::Result<&[u8]> {
+        let mult = idx * 4;
+        let offset = u32::from_le_bytes(self.buffer[mult..mult + 4].try_into()?) as usize;
+
+        Ok(&self.buffer[offset..])
     }
 
     pub fn iter(&self) -> Range<usize> {
-        0..self.offsets.len()
+        0..self.assumed_length.len()
     }
 }
 
@@ -64,7 +66,6 @@ impl TryFrom<Vec<u8>> for Packed {
         Ok(Packed {
             buffer: file.into(),
             assumed_length,
-            offsets,
         })
     }
 }
@@ -111,7 +112,6 @@ impl TryFrom<&[u8]> for Packed {
         Ok(Packed {
             buffer: file.into(),
             assumed_length,
-            offsets,
         })
     }
 }
