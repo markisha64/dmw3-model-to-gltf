@@ -12,11 +12,5 @@ binwrite = "0.2.1"
 clap = { version = "4.5.3", features = ["derive"] }
 gltf-json = "1.4.1"
 image = "0.25.1"
-rlen = { path = "./rlen" }
-tim = { path = "./tim" }
-
-[workspace]
-members = [
-  "rlen",
-  "tim"
-]
+rlen = { git = "https://github.com/markisha64/dmw3-util" }
+tim = { git = "https://github.com/markisha64/dmw3-util" }
