@@ -13,6 +13,7 @@ use pack::Packed;
 use rlen::rlen_decode;
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread;
 use std::{fs, mem};
 use tim::Tim;
 
@@ -20,7 +21,11 @@ use tim::Tim;
 struct Args {
     file: PathBuf,
 
+    #[arg(long)]
     header_index: Option<usize>,
+
+    #[arg(short, long, default_value_t = 1)]
+    threads: usize,
 }
 
 #[derive(BinRead)]
@@ -214,7 +219,7 @@ fn grab_frames(animations: Packed) -> anyhow::Result<Vec<Animation>> {
     let returnv: anyhow::Result<Vec<Animation>> = animations
         .iter()
         .map(|idx| -> anyhow::Result<Animation> {
-            let animation = animations.get_file(idx);
+            let animation = animations.get_file(idx)?;
 
             let mut reader = Cursor::new(&animation);
 
@@ -303,7 +308,7 @@ fn find_or_interpolate_frame<'a>(
     let (idx, best_match) = files[animation][index]
         .iter()
         .enumerate()
-        .find(|(_idx, frame)| frame.id >= frame_id)
+        .find(|(_idx, frame)| frame.id as i16 > frame_id as i16)
         .unwrap_or((
             files[animation][index].len() - 1,
             files[animation][index].last().unwrap(),
@@ -351,7 +356,7 @@ fn get_clut(tim: &Tim, clut_x: usize, clut_y: usize) -> &[u8] {
 fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Result<()> {
     let mut root = json::Root::default();
 
-    let animations = grab_frames(Packed::from(Vec::from(unpacked.get_file(0))))?;
+    let animations = grab_frames(Packed::try_from(Vec::from(unpacked.get_file(0)?))?)?;
 
     let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
@@ -362,12 +367,12 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
                 return Vec::new();
             }
 
-            let upkg = Packed::from(unpacked.get_file(idx));
+            let upkg = Packed::try_from(unpacked.get_file(idx).unwrap()).unwrap();
 
             let mut returnv: Vec<Vec<AnimationFrame>> = Vec::new();
 
             for fidx in 0..3 {
-                let mut reader = Cursor::new(upkg.get_file(fidx));
+                let mut reader = Cursor::new(upkg.get_file(fidx).unwrap());
 
                 let mut res = Vec::new();
 
@@ -385,11 +390,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         })
         .collect();
 
-    let texture_packed_raw = unpacked.get_file(header.texture_offset as usize);
+    let texture_packed_raw = unpacked.get_file(header.texture_offset as usize)?;
 
-    let texture_packed = Packed::from(texture_packed_raw);
+    let texture_packed = Packed::try_from(texture_packed_raw)?;
 
-    let texture_raw = match rlen_decode(texture_packed.get_file(0)) {
+    let texture_raw = match rlen_decode(texture_packed.get_file(0)?) {
         Ok(file) => file,
         Err(_) => Vec::from(texture_packed_raw),
     };
@@ -501,7 +506,7 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
     }
 
     for (idx, part) in header.parts.iter().enumerate() {
-        let vfile = unpacked.get_file(part.geometry as usize);
+        let vfile = unpacked.get_file(part.geometry as usize)?;
 
         let verts_offset = u32::from_le_bytes([vfile[0], vfile[1], vfile[2], vfile[3]]) as usize;
 
@@ -1433,11 +1438,30 @@ fn find_header_index(file: &Packed) -> anyhow::Result<usize> {
             return false;
         }
 
-        let s = file.get_file(*idx);
+        let s = match file.get_file(*idx) {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
 
         let len = u32::from_le_bytes([s[4], s[5], s[6], s[7]]) as usize;
 
-        (8 + len * 12) == file.assumed_length[*idx]
+        if (8 + len * 12) != file.assumed_length[*idx] {
+            return false;
+        }
+
+        let header = match Header::read(&mut Cursor::new(s)) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+
+        match header
+            .parts
+            .iter()
+            .find(|x| x.parent_index >= header._part_count)
+        {
+            Some(_) => false,
+            None => true,
+        }
     });
 
     let found_unwrapped = match found {
@@ -1452,11 +1476,11 @@ fn process_file(path: &PathBuf, header_index: Option<usize>) -> anyhow::Result<(
     println!("{}", path.to_str().unwrap_or("unk"));
     let file = fs::read(&path)?;
 
-    let unpacked = Packed::from(file);
+    let unpacked = Packed::try_from(file)?;
 
     let header_raw = match header_index {
-        None => unpacked.get_file(find_header_index(&unpacked)?),
-        Some(x) => unpacked.get_file(x),
+        None => unpacked.get_file(find_header_index(&unpacked)?)?,
+        Some(x) => unpacked.get_file(x)?,
     };
 
     let mut header_reader = Cursor::new(&header_raw);
@@ -1483,15 +1507,52 @@ fn main() -> anyhow::Result<()> {
     match args.file.is_file() {
         true => process_file(&args.file, args.header_index)?,
         false => {
+            let mut entries: Vec<PathBuf> = Vec::new();
+
             for entry in fs::read_dir(args.file)? {
                 let entryw = entry?;
                 let fpath = entryw.path();
 
-                match process_file(&fpath, None) {
-                    Ok(_) => {}
-                    Err(e) => println!("{}", e),
+                let meta = entryw.metadata()?;
+                let fname = match fpath.file_name() {
+                    Some(s) => s.to_str().unwrap_or(""),
+                    None => continue,
                 };
+
+                if meta.is_dir() || fname.starts_with(".") {
+                    continue;
+                }
+
+                entries.push(fpath);
             }
+
+            let chunk_size = (entries.len() + args.threads - 1) / args.threads;
+
+            thread::scope(|s| {
+                let threads: Vec<_> = entries
+                    .chunks(chunk_size)
+                    .map(|chunk| {
+                        s.spawn(move || {
+                            let mut success = 0;
+
+                            for fpath in chunk {
+                                match process_file(&fpath, None) {
+                                    Ok(_) => success += 1,
+                                    Err(e) => println!("{}", e),
+                                };
+                            }
+
+                            success
+                        })
+                    })
+                    .collect();
+
+                let sum = threads
+                    .into_iter()
+                    .fold(0, |pv, thread| pv + thread.join().unwrap_or(0));
+
+                println!("{}/{} success", sum, entries.len());
+            })
         }
     }
 
