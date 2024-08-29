@@ -14,3 +14,4 @@ gltf-json = "1.4.1"
 image = "0.25.1"
 rlen = { git = "https://github.com/markisha64/dmw3-util" }
 tim = { git = "https://github.com/markisha64/dmw3-util" }
+dmw3_model = { git = "https://github.com/markisha64/dmw3-util" }
