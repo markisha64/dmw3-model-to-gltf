@@ -1,8 +1,7 @@
-mod pack;
-
 use binread::{io::Cursor, BinRead};
 use clap::Parser;
 use dmw3_model::{AnimationFrame, AnimationFrames, AnimationInst, Header, Part};
+use dmw3_pack::Packed;
 use gltf_json as json;
 use image::RgbaImage;
 use json::material::{EmissiveFactor, PbrBaseColorFactor, PbrMetallicRoughness, StrengthFactor};
@@ -10,7 +9,6 @@ use json::texture::Info;
 use json::validation::Checked::Valid;
 use json::validation::USize64;
 use json::Index;
-use pack::Packed;
 use rlen::rlen_decode;
 use std::io::Write;
 use std::path::PathBuf;
