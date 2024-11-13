@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use binread::{io::Cursor, BinRead};
 use clap::Parser;
 use dmw3_model::{AnimationFrame, AnimationFrames, AnimationInst, Header, Part};
@@ -10,7 +11,6 @@ use json::validation::Checked::Valid;
 use json::validation::USize64;
 use json::Index;
 use rlen::rlen_decode;
-use std::io::Write;
 use std::path::PathBuf;
 use std::thread;
 use std::{fs, mem};
@@ -71,6 +71,13 @@ const ROTATION: f32 = 1.0 / 1024.0;
 
 type Point = (u32, u32);
 type PointFloat = (f64, f64);
+
+fn bytes_to_base64_uri(bytes: Vec<u8>) -> String {
+    format!(
+        "data:application/octet-stream;base64,{}",
+        STANDARD.encode(bytes)
+    )
+}
 
 fn point_in_triangle(p1: PointFloat, p2: PointFloat, p3: PointFloat, px: f64, py: f64) -> bool {
     let area_orig =
@@ -339,60 +346,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
     let mut texture_png: RgbaImage = RgbaImage::new(256, 256);
 
     let mut nodes = Vec::new();
-
-    let image = root.push(json::Image {
-        buffer_view: None,
-        mime_type: None,
-        uri: Some("texture.png".into()),
-        extensions: Default::default(),
-        extras: Default::default(),
-    });
-
-    let sampler = root.push(json::texture::Sampler {
-        mag_filter: Some(Valid(json::texture::MagFilter::Nearest)),
-        min_filter: Some(Valid(json::texture::MinFilter::Nearest)),
-        wrap_s: Valid(json::texture::WrappingMode::Repeat),
-        wrap_t: Valid(json::texture::WrappingMode::Repeat),
-        extensions: Default::default(),
-        extras: Default::default(),
-    });
-
-    let texture = root.push(json::Texture {
-        sampler: Some(sampler),
-        source: image,
-        extensions: Default::default(),
-        extras: Default::default(),
-    });
-
-    let pbr = PbrMetallicRoughness {
-        base_color_texture: Some(Info {
-            index: texture,
-            tex_coord: 0,
-            extensions: Default::default(),
-            extras: Default::default(),
-        }),
-        base_color_factor: PbrBaseColorFactor {
-            0: [1.0, 1.0, 1.0, 1.0],
-        },
-        metallic_factor: StrengthFactor(0.0),
-        metallic_roughness_texture: None,
-        roughness_factor: StrengthFactor(0.0),
-        extensions: Default::default(),
-        extras: Default::default(),
-    };
-
-    let material = root.push(json::Material {
-        alpha_cutoff: None,
-        alpha_mode: Valid(json::material::AlphaMode::Mask),
-        double_sided: true,
-        pbr_metallic_roughness: pbr,
-        extensions: Default::default(),
-        extras: Default::default(),
-        normal_texture: None,
-        emissive_texture: None,
-        occlusion_texture: None,
-        emissive_factor: EmissiveFactor([0.0, 0.0, 0.0]),
-    });
 
     let mut parts: Vec<Part> = Vec::new();
     let mut vertices: Vec<Vertex> = Vec::new();
@@ -730,12 +683,13 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         });
     }
 
-    let texture_buffer_length = tex_coords_ref.len() * mem::size_of::<Texel>();
+    let tex_coords_bin = to_padded_byte_vector(tex_coords.clone());
+    let texture_buffer_length = tex_coords.len() * mem::size_of::<Texel>();
     let texture_buffer = root.push(json::Buffer {
         byte_length: USize64::from(texture_buffer_length),
         extensions: Default::default(),
         extras: Default::default(),
-        uri: Some("tex_buffer.bin".into()),
+        uri: Some(bytes_to_base64_uri(tex_coords_bin)),
     });
 
     let texture_view = root.push(json::buffer::View {
@@ -748,12 +702,13 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
-    let vertex_buffer_length = vertices_ref.len() * mem::size_of::<Vertex>();
+    let vertex_bin = to_padded_byte_vector(vertices.clone());
+    let vertex_buffer_length = vertices.len() * mem::size_of::<Vertex>();
     let vertex_buffer = root.push(json::Buffer {
         byte_length: USize64::from(vertex_buffer_length),
         extensions: Default::default(),
         extras: Default::default(),
-        uri: Some(format!("vertex_buffer.bin")),
+        uri: Some(bytes_to_base64_uri(vertex_bin)),
     });
 
     let vertex_view = root.push(json::buffer::View {
@@ -766,10 +721,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
+    let joints_bin = to_padded_byte_vector(joints.clone());
     let joints_buffer_length = joints.len() * mem::size_of::<Vec4u16>();
     let joints_buffer = root.push(json::Buffer {
         byte_length: USize64::from(joints_buffer_length),
-        uri: Some(format!("joints.bin")),
+        uri: Some(bytes_to_base64_uri(joints_bin)),
         extensions: Default::default(),
         extras: Default::default(),
     });
@@ -784,10 +740,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
+    let weights_bin = to_padded_byte_vector(weights.clone());
     let weights_buffer_length = weights.len() * mem::size_of::<Vec4>();
     let weights_buffer = root.push(json::Buffer {
         byte_length: USize64::from(weights_buffer_length),
-        uri: Some(format!("weights.bin")),
+        uri: Some(bytes_to_base64_uri(weights_bin)),
         extensions: Default::default(),
         extras: Default::default(),
     });
@@ -810,6 +767,64 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         extensions: Default::default(),
         extras: Default::default(),
         skeleton: None,
+    });
+
+    let mut image_bin = Vec::new();
+    let mut image_cursor = Cursor::new(&mut image_bin);
+    texture_png.write_to(&mut image_cursor, image::ImageFormat::Png)?;
+
+    let image = root.push(json::Image {
+        buffer_view: None,
+        mime_type: None,
+        uri: Some(bytes_to_base64_uri(image_bin)),
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let sampler = root.push(json::texture::Sampler {
+        mag_filter: Some(Valid(json::texture::MagFilter::Nearest)),
+        min_filter: Some(Valid(json::texture::MinFilter::Nearest)),
+        wrap_s: Valid(json::texture::WrappingMode::Repeat),
+        wrap_t: Valid(json::texture::WrappingMode::Repeat),
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let texture = root.push(json::Texture {
+        sampler: Some(sampler),
+        source: image,
+        extensions: Default::default(),
+        extras: Default::default(),
+    });
+
+    let pbr = PbrMetallicRoughness {
+        base_color_texture: Some(Info {
+            index: texture,
+            tex_coord: 0,
+            extensions: Default::default(),
+            extras: Default::default(),
+        }),
+        base_color_factor: PbrBaseColorFactor {
+            0: [1.0, 1.0, 1.0, 1.0],
+        },
+        metallic_factor: StrengthFactor(0.0),
+        metallic_roughness_texture: None,
+        roughness_factor: StrengthFactor(0.0),
+        extensions: Default::default(),
+        extras: Default::default(),
+    };
+
+    let material = root.push(json::Material {
+        alpha_cutoff: None,
+        alpha_mode: Valid(json::material::AlphaMode::Mask),
+        double_sided: true,
+        pbr_metallic_roughness: pbr,
+        extensions: Default::default(),
+        extras: Default::default(),
+        normal_texture: None,
+        emissive_texture: None,
+        occlusion_texture: None,
+        emissive_factor: EmissiveFactor([0.0, 0.0, 0.0]),
     });
 
     for part in parts.iter() {
@@ -1100,10 +1115,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         }
     }
 
+    let timestamps_bin = to_padded_byte_vector(animation_timestamps.clone());
     let timestamp_buffer_length = animation_timestamps.len() * mem::size_of::<f32>();
     let timestamp_buffer = root.push(json::Buffer {
         byte_length: USize64::from(timestamp_buffer_length),
-        uri: Some("ts.bin".into()),
+        uri: Some(bytes_to_base64_uri(timestamps_bin)),
         extensions: Default::default(),
         extras: Default::default(),
     });
@@ -1118,10 +1134,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
+    let translations_bin = to_padded_byte_vector(animation_translations.clone());
     let translations_buffer_length = animation_translations.len() * mem::size_of::<Vec3>();
     let translations_buffer = root.push(json::Buffer {
         byte_length: USize64::from(translations_buffer_length),
-        uri: Some("trans.bin".into()),
+        uri: Some(bytes_to_base64_uri(translations_bin)),
         extensions: Default::default(),
         extras: Default::default(),
     });
@@ -1136,10 +1153,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
+    let rotation_bin = to_padded_byte_vector(animation_rotation.clone());
     let rotation_buffer_length = animation_rotation.len() * mem::size_of::<Vec4>();
     let rotation_buffer = root.push(json::Buffer {
         byte_length: USize64::from(rotation_buffer_length),
-        uri: Some("rotation.bin".into()),
+        uri: Some(bytes_to_base64_uri(rotation_bin)),
         extensions: Default::default(),
         extras: Default::default(),
     });
@@ -1154,10 +1172,11 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
         target: Some(Valid(json::buffer::Target::ArrayBuffer)),
     });
 
+    let scale_bin = to_padded_byte_vector(animation_scale.clone());
     let scale_buffer_length = animation_scale.len() * mem::size_of::<Vec3>();
     let scale_buffer = root.push(json::Buffer {
         byte_length: USize64::from(scale_buffer_length),
-        uri: Some("scale.bin".into()),
+        uri: Some(bytes_to_base64_uri(scale_bin)),
         extensions: Default::default(),
         extras: Default::default(),
     });
@@ -1318,40 +1337,6 @@ fn create_gltf(header: &Header, filename: &str, unpacked: &Packed) -> anyhow::Re
             extras: Default::default(),
         });
     }
-
-    let vertex_bin = to_padded_byte_vector(vertices);
-    let mut vertex_writer = fs::File::create(format!("{TARGET}/{filename}/vertex_buffer.bin"))?;
-    vertex_writer.write_all(&vertex_bin)?;
-
-    let tex_coords_bin = to_padded_byte_vector(tex_coords);
-    let mut tex_coords_writer = fs::File::create(format!("{TARGET}/{filename}/tex_buffer.bin"))?;
-    tex_coords_writer.write_all(&tex_coords_bin)?;
-
-    let joints_bin = to_padded_byte_vector(joints);
-    let mut joints_writer = fs::File::create(format!("{TARGET}/{filename}/joints.bin"))?;
-    joints_writer.write_all(&joints_bin)?;
-
-    let weights_bin = to_padded_byte_vector(weights);
-    let mut weights_writer = fs::File::create(format!("{TARGET}/{filename}/weights.bin"))?;
-    weights_writer.write_all(&weights_bin)?;
-
-    let timestamps_bin = to_padded_byte_vector(animation_timestamps);
-    let mut timestamps_writer = fs::File::create(format!("{TARGET}/{filename}/ts.bin"))?;
-    timestamps_writer.write_all(&timestamps_bin)?;
-
-    let translations_bin = to_padded_byte_vector(animation_translations);
-    let mut translations_writer = fs::File::create(format!("{TARGET}/{filename}/trans.bin"))?;
-    translations_writer.write_all(&translations_bin)?;
-
-    let rotation_bin = to_padded_byte_vector(animation_rotation);
-    let mut rotation_writer = fs::File::create(format!("{TARGET}/{filename}/rotation.bin"))?;
-    rotation_writer.write_all(&rotation_bin)?;
-
-    let scale_bin = to_padded_byte_vector(animation_scale);
-    let mut scale_writer = fs::File::create(format!("{TARGET}/{filename}/scale.bin"))?;
-    scale_writer.write_all(&scale_bin)?;
-
-    texture_png.save(format!("{TARGET}/{filename}/texture.png"))?;
 
     root.push(json::Scene {
         extensions: Default::default(),
