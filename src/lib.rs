@@ -44,9 +44,7 @@ struct Texel {
 }
 
 struct Animation {
-    frames: Vec<u16>,
-    sub_frames: Vec<u16>,
-    set_frames: Vec<u16>,
+    frames: Vec<Option<u16>>,
 }
 
 const MULTIPLIER: f32 = 1.0 / 256.0;
@@ -176,54 +174,30 @@ fn grab_frames(animations: Packed) -> anyhow::Result<Vec<Animation>> {
             }
 
             let mut frames = Vec::new();
-            let mut sub_frames = Vec::new();
-            let mut set_frames = Vec::new();
 
-            for (idx, instruction) in instructions.iter().enumerate() {
+            for instruction in instructions.iter() {
                 if instruction.t == 0x7fff {
                     break;
                 }
 
                 if instruction.len == 0 {
-                    frames.push(instruction.c);
-                    set_frames.push(instruction.d);
-                    sub_frames.push(0);
+                    frames.push(Some(instruction.c));
 
                     break;
                 }
 
                 if instruction.d == 0 {
-                    let sub = match instruction.t != 0 {
-                        true => instructions[idx - 1].d,
-                        _ => 0xffff,
-                    };
-
-                    let set = match instructions.get(idx + 1) {
-                        Some(s) => s.c,
-                        None => instructions[0].c,
-                    };
-
-                    for i in 1..instruction.len {
-                        frames.push(
-                            (((i as u32 * 4096) / (instruction.len as u32 + 1)) | 0x8000) as u16,
-                        );
-                        sub_frames.push(sub);
-                        set_frames.push(set)
+                    for _ in 1..instruction.len {
+                        frames.push(None);
                     }
                 } else {
                     for i in 0..instruction.len {
-                        frames.push(instruction.c + i);
-                        sub_frames.push(0);
-                        set_frames.push(0);
+                        frames.push(Some(instruction.c + i));
                     }
                 }
             }
 
-            Ok(Animation {
-                frames,
-                sub_frames,
-                set_frames,
-            })
+            Ok(Animation { frames })
         })
         .collect();
 
@@ -913,19 +887,18 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
         nodes.push(node);
     }
 
-    let mut animations_parsed: Vec<Vec<Vec<AnimationFrames>>> = Vec::new();
+    let mut animations_parsed: Vec<Vec<Vec<Option<AnimationFrames>>>> = Vec::new();
 
     for anim in animations.iter() {
         animations_parsed.push(
             header
                 .parts
                 .iter()
-                .map(|x| -> anyhow::Result<Vec<AnimationFrames>> {
+                .map(|x| -> anyhow::Result<Vec<Option<AnimationFrames>>> {
                     anim.frames
                         .iter()
-                        .enumerate()
-                        .map(|(idx, frame_id)| -> anyhow::Result<AnimationFrames> {
-                            if frame_id & 0x8000 == 0 {
+                        .map(|frame| -> anyhow::Result<Option<AnimationFrames>> {
+                            if let Some(frame_id) = frame {
                                 let translation = find_or_interpolate_frame(
                                     &animation_files,
                                     x.animation as usize,
@@ -947,116 +920,18 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
                                     2,
                                 )?;
 
-                                return Ok(AnimationFrames {
+                                return Ok(Some(AnimationFrames {
                                     translation,
                                     rotation,
                                     scale,
-                                });
+                                }));
                             }
 
-                            let sub_frame = anim.sub_frames[idx];
-                            let set_frame = anim.set_frames[idx];
-                            let scale = (frame_id & 0x7fff) as i32;
-
-                            let sub_translation = find_or_interpolate_frame(
-                                &animation_files,
-                                x.animation as usize,
-                                sub_frame,
-                                0,
-                            )?;
-
-                            let sub_rotation = find_or_interpolate_frame(
-                                &animation_files,
-                                x.animation as usize,
-                                sub_frame,
-                                1,
-                            )?;
-
-                            let sub_scale = find_or_interpolate_frame(
-                                &animation_files,
-                                x.animation as usize,
-                                sub_frame,
-                                2,
-                            )?;
-
-                            let r_translation = find_or_interpolate_frame(
-                                &animation_files,
-                                x.animation as usize,
-                                set_frame,
-                                0,
-                            )?;
-
-                            let r_rotation = find_or_interpolate_frame(
-                                &animation_files,
-                                x.animation as usize,
-                                set_frame,
-                                1,
-                            )?;
-
-                            let r_scale = find_or_interpolate_frame(
-                                &animation_files,
-                                x.animation as usize,
-                                set_frame,
-                                2,
-                            )?;
-
-                            let translation = AnimationFrame {
-                                vx: (sub_translation.vx as i32
-                                    + (((sub_translation.vx as i32 - r_translation.vx as i32)
-                                        as i32
-                                        * scale)
-                                        / 4096)) as i16,
-                                vy: (sub_translation.vy as i32
-                                    + (((sub_translation.vy as i32 - r_translation.vy as i32)
-                                        as i32
-                                        * scale)
-                                        / 4096)) as i16,
-                                vz: (sub_translation.vz as i32
-                                    + (((sub_translation.vz as i32 - r_translation.vz as i32)
-                                        as i32
-                                        * scale)
-                                        / 4096)) as i16,
-                                id: sub_translation.id,
-                            };
-
-                            let rotation = AnimationFrame {
-                                vx: (sub_rotation.vx as i32
-                                    + (((sub_rotation.vx as i32 - r_rotation.vx as i32) as i32
-                                        * scale)
-                                        / 4096)) as i16,
-                                vy: (sub_rotation.vy as i32
-                                    + (((sub_rotation.vy as i32 - r_rotation.vy as i32) as i32
-                                        * scale)
-                                        / 4096)) as i16,
-                                vz: (sub_rotation.vz as i32
-                                    + (((sub_rotation.vz as i32 - r_rotation.vz as i32) as i32
-                                        * scale)
-                                        / 4096)) as i16,
-                                id: sub_rotation.id,
-                            };
-
-                            let scale = AnimationFrame {
-                                vx: (sub_scale.vx as i32
-                                    + (((sub_scale.vx as i32 - r_scale.vx as i32) as i32 * scale)
-                                        / 4096)) as i16,
-                                vy: (sub_scale.vy as i32
-                                    + (((sub_scale.vy as i32 - r_scale.vy as i32) as i32 * scale)
-                                        / 4096)) as i16,
-                                vz: (sub_scale.vz as i32
-                                    + (((sub_scale.vz as i32 - r_scale.vz as i32) as i32 * scale)
-                                        / 4096)) as i16,
-                                id: sub_scale.id,
-                            };
-
-                            Ok(AnimationFrames {
-                                translation,
-                                rotation,
-                                scale,
-                            })
+                            Ok(None)
                         })
-                        .collect::<anyhow::Result<Vec<AnimationFrames>>>()
+                        .collect::<anyhow::Result<Vec<Option<AnimationFrames>>>>()
                 })
-                .collect::<anyhow::Result<Vec<Vec<AnimationFrames>>>>()?,
+                .collect::<anyhow::Result<Vec<Vec<Option<AnimationFrames>>>>>()?,
         );
     }
 
@@ -1065,38 +940,52 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
     let mut animation_rotation: Vec<Vec4> = Vec::new();
     let mut animation_scale: Vec<Vec3> = Vec::new();
 
-    let longest_animation = match animations
-        .iter()
-        .max_by(|x, y| x.frames.len().cmp(&y.frames.len()))
-    {
-        Some(s) => s,
-        None => {
-            return Err(anyhow::anyhow!("failed to find longest animation"));
-        }
-    };
-
-    animation_timestamps
-        .extend((0..longest_animation.frames.len()).map(|x| x as f32 * (1.0 / FPS)));
-
     for animation in animations_parsed {
         for part in animation {
-            animation_translations.extend(part.iter().map(|x| Vec3 {
-                values: [
-                    x.translation.vx as f32 * MULTIPLIER,
-                    x.translation.vy as f32 * MULTIPLIER,
-                    x.translation.vz as f32 * MULTIPLIER,
-                ],
-            }));
+            for (idx, v) in part.iter().enumerate() {
+                if v.is_some() {
+                    animation_timestamps.push(idx as f32 * (1.0 / FPS));
+                }
+            }
 
-            animation_rotation.extend(part.iter().map(|x| to_quaternion(&x.rotation)));
+            animation_translations.extend(
+                part.iter()
+                    .filter_map(|x| match x {
+                        Some(s) => Some(s),
+                        None => None,
+                    })
+                    .map(|x| Vec3 {
+                        values: [
+                            x.translation.vx as f32 * MULTIPLIER,
+                            x.translation.vy as f32 * MULTIPLIER,
+                            x.translation.vz as f32 * MULTIPLIER,
+                        ],
+                    }),
+            );
 
-            animation_scale.extend(part.iter().map(|x| Vec3 {
-                values: [
-                    x.scale.vx as f32 * SCALE_MULTIPLIER,
-                    x.scale.vy as f32 * SCALE_MULTIPLIER,
-                    x.scale.vz as f32 * SCALE_MULTIPLIER,
-                ],
-            }));
+            animation_rotation.extend(
+                part.iter()
+                    .filter_map(|x| match x {
+                        Some(s) => Some(s),
+                        None => None,
+                    })
+                    .map(|x| to_quaternion(&x.rotation)),
+            );
+
+            animation_scale.extend(
+                part.iter()
+                    .filter_map(|x| match x {
+                        Some(s) => Some(s),
+                        None => None,
+                    })
+                    .map(|x| Vec3 {
+                        values: [
+                            x.scale.vx as f32 * SCALE_MULTIPLIER,
+                            x.scale.vy as f32 * SCALE_MULTIPLIER,
+                            x.scale.vz as f32 * SCALE_MULTIPLIER,
+                        ],
+                    }),
+            );
         }
     }
 
@@ -1178,29 +1067,31 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
 
     let mut part_iter = 0;
     for animation in animations.iter() {
-        let timestamp_accessor = root.push(json::Accessor {
-            buffer_view: Some(timestamp_buffer_view),
-            byte_offset: Some(USize64(0)),
-            count: USize64::from(animation.frames.len()),
-            component_type: Valid(json::accessor::GenericComponentType(
-                json::accessor::ComponentType::F32,
-            )),
-            type_: Valid(json::accessor::Type::Scalar),
-            min: None,
-            max: None,
-            normalized: false,
-            sparse: None,
-            extensions: Default::default(),
-            extras: Default::default(),
-        });
-
         let mut samplers = Vec::new();
         let mut channels = Vec::new();
         for i in 1..parts.len() + 1 {
+            let anim_frames_len = animation.frames.iter().filter(|x| x.is_some()).count();
+
+            let timestamp_accessor = root.push(json::Accessor {
+                buffer_view: Some(timestamp_buffer_view),
+                byte_offset: Some(USize64::from(part_iter * mem::size_of::<f32>())),
+                count: USize64::from(anim_frames_len),
+                component_type: Valid(json::accessor::GenericComponentType(
+                    json::accessor::ComponentType::F32,
+                )),
+                type_: Valid(json::accessor::Type::Scalar),
+                min: None,
+                max: None,
+                normalized: false,
+                sparse: None,
+                extensions: Default::default(),
+                extras: Default::default(),
+            });
+
             let translation_accessor = root.push(json::Accessor {
                 buffer_view: Some(translations_buffer_view),
                 byte_offset: Some(USize64::from(part_iter * mem::size_of::<Vec3>())),
-                count: USize64::from(animation.frames.len()),
+                count: USize64::from(anim_frames_len),
                 component_type: Valid(json::accessor::GenericComponentType(
                     json::accessor::ComponentType::F32,
                 )),
@@ -1224,7 +1115,7 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
             let rotation_accessor = root.push(json::Accessor {
                 buffer_view: Some(rotation_buffer_view),
                 byte_offset: Some(USize64::from(part_iter * mem::size_of::<Vec4>())),
-                count: USize64::from(animation.frames.len()),
+                count: USize64::from(anim_frames_len),
                 component_type: Valid(json::accessor::GenericComponentType(
                     json::accessor::ComponentType::F32,
                 )),
@@ -1248,7 +1139,7 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
             let scale_accessor = root.push(json::Accessor {
                 buffer_view: Some(scale_buffer_view),
                 byte_offset: Some(USize64::from(part_iter * mem::size_of::<Vec3>())),
-                count: USize64::from(animation.frames.len()),
+                count: USize64::from(anim_frames_len),
                 component_type: Valid(json::accessor::GenericComponentType(
                     json::accessor::ComponentType::F32,
                 )),
@@ -1312,7 +1203,7 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
             channels.push(rotation_channel);
             channels.push(scale_channel);
 
-            part_iter += animation.frames.len();
+            part_iter += anim_frames_len;
         }
 
         root.push(json::Animation {
