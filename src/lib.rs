@@ -264,7 +264,13 @@ fn to_quaternion(frame: &AnimationFrame) -> Vec4 {
 pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>> {
     let mut root = json::Root::default();
 
-    let animations = grab_frames(Packed::from(unpacked.files[0].clone()))?;
+    let mut anims = Packed::from(unpacked.files[0].clone());
+
+    if anims.files.len() == 4 {
+        anims = Packed::from(unpacked.files[unpacked.files.len() - 2].clone());
+    }
+
+    let animations = grab_frames(anims)?;
 
     let animation_idxs: Vec<u32> = header.parts.iter().map(|x| x.animation).collect();
 
