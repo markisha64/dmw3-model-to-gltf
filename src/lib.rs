@@ -132,7 +132,14 @@ fn clut_idx_to_rgb(clut: &[u8], idx: usize) -> image::Rgba<u8> {
         return image::Rgba([r_norm, g_norm, b_norm, 0]);
     }
 
-    image::Rgba([r_norm, g_norm, b_norm, 255])
+    // this isn't entirely correct because of
+    // different psx blending modes but suure
+    let a = match _stp {
+        true => 127,
+        false => 255,
+    };
+
+    image::Rgba([r_norm, g_norm, b_norm, a])
 }
 
 fn color_tex_tris(
@@ -530,17 +537,17 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
                         }
 
                         if is_quad > 0 {
-                            vertices_ref.push(face[0]);
-                            vertices_ref.push(face[1]);
                             vertices_ref.push(face[2]);
+                            vertices_ref.push(face[1]);
+                            vertices_ref.push(face[0]);
 
                             vertices_ref.push(face[1]);
                             vertices_ref.push(face[2]);
                             vertices_ref.push(face[3]);
 
-                            tex_coords_ref.push(face_tex[0]);
-                            tex_coords_ref.push(face_tex[1]);
                             tex_coords_ref.push(face_tex[2]);
+                            tex_coords_ref.push(face_tex[1]);
+                            tex_coords_ref.push(face_tex[0]);
 
                             tex_coords_ref.push(face_tex[1]);
                             tex_coords_ref.push(face_tex[2]);
@@ -582,13 +589,13 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
                                 ),
                             );
                         } else {
-                            vertices_ref.push(face[0]);
-                            vertices_ref.push(face[1]);
                             vertices_ref.push(face[2]);
+                            vertices_ref.push(face[1]);
+                            vertices_ref.push(face[0]);
 
-                            tex_coords_ref.push(face_tex[0]);
-                            tex_coords_ref.push(face_tex[1]);
                             tex_coords_ref.push(face_tex[2]);
+                            tex_coords_ref.push(face_tex[1]);
+                            tex_coords_ref.push(face_tex[0]);
 
                             color_tex_tris(
                                 &mut texture_png,
@@ -801,8 +808,8 @@ pub fn create_gltf(header: &Header, unpacked: &Packed) -> anyhow::Result<Vec<u8>
 
     let material = root.push(json::Material {
         alpha_cutoff: None,
-        alpha_mode: Valid(json::material::AlphaMode::Mask),
-        double_sided: true,
+        alpha_mode: Valid(json::material::AlphaMode::Blend),
+        double_sided: false,
         pbr_metallic_roughness: pbr,
         extensions: Default::default(),
         extras: Default::default(),
